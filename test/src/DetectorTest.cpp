@@ -267,8 +267,8 @@ TEST_P(DetectorTest, RaceInspection) {
     EXPECT_NE(tls90, tls91);
 
     // Thread A
-    detector->func_enter(tls90, &callstack_funA);
-    detector->func_enter(tls90, &callstack_funB);
+    detector->func_enter(tls90, (void*)&callstack_funA);
+    detector->func_enter(tls90, (void*)&callstack_funB);
 
     detector->write(tls90, (void*)0x0090, (void*)0x00920000, 8);
 
@@ -276,7 +276,7 @@ TEST_P(DetectorTest, RaceInspection) {
     detector->func_exit(tls90);
 
     // Thread B
-    detector->func_enter(tls91, &callstack_funB);
+    detector->func_enter(tls91, (void*)&callstack_funB);
     detector->read(tls91, (void*)0x0091, (void*)0x00920000, 8);
     detector->func_exit(tls91);
 

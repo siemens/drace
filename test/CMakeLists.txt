@@ -68,6 +68,9 @@ add_executable(${TEST_UNIT_TARGET} ${TEST_SOURCES_UNIT})
 
 target_include_directories(${TEST_UNIT_TARGET} PRIVATE "include")
 target_link_libraries(${TEST_UNIT_TARGET} PRIVATE gtest gtest_main "drace-common")
+if(UNIX)
+	target_link_libraries(${TEST_UNIT_TARGET} PRIVATE "-ldl")
+endif()
 
 # get and register all test suites
 get_property(TEST_SUITES GLOBAL PROPERTY DRACE_TEST_SUITES)
