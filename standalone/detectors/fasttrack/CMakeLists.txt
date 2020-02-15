@@ -87,6 +87,11 @@ if(Boost_FOUND)
             CXX_STANDARD 17
             CXX_STANDARD_REQUIRED ON)
 
+
+        if(COVERAGE_TESTING)
+          add_coverage_flags(fasttrack_test)
+        endif()
+
         gtest_discover_tests(fasttrack_test WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
     endif()
 endif()

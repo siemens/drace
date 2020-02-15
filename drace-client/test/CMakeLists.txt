@@ -14,6 +14,10 @@ target_compile_definitions(drace_rt_test PRIVATE TESTING)
 target_link_libraries(drace_rt_test gmock gtest gtest_main "drace-common")
 target_include_directories(drace_rt_test PRIVATE "../include")
 
+if(COVERAGE_TESTING)
+  add_coverage_flags(drace_rt_test)
+endif()
+
 add_custom_target("drace-copy-testdata" ALL
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${PROJECT_SOURCE_DIR}/drace.ini"

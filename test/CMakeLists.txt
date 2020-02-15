@@ -85,6 +85,10 @@ if(DRACE_ENABLE_RUNTIME)
 	add_dependencies(${TEST_UNIT_TARGET} "drace-client")
 endif()
 
+if(COVERAGE_TESTING)
+  add_coverage_flags(${TEST_UNIT_TARGET})
+endif()
+
 gtest_discover_tests(${TEST_UNIT_TARGET}
 	WORKING_DIRECTORY ${PROJECT_BINARY_DIR}
 	PROPERTIES RUN_SERIAL ON)

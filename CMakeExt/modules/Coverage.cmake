@@ -1,0 +1,7 @@
+function(add_coverage_flags COVERAGE_target)
+  if(CMAKE_CXX_COMPILER_ID MATCHES GNU)
+    message(STATUS "Setup coverage testing for ${COVERAGE_target}")
+    target_compile_options(${COVERAGE_target} PUBLIC "-fprofile-arcs" "-ftest-coverage")
+    target_link_options(${COVERAGE_target} PUBLIC "-fprofile-arcs" "-ftest-coverage")
+  endif()
+endfunction()

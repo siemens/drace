@@ -28,6 +28,9 @@ if(BUILD_TESTING)
     # create library which is linked in global testing module
     add_executable(common_test ${TEST_SOURCES})
     target_link_libraries(common_test PRIVATE gtest gtest_main "drace-common")
+    if(COVERAGE_TESTING)
+      add_coverage_flags(common_test)
+    endif()
     # SHMDriver requires serial execution
     gtest_discover_tests(common_test WORKING_DIRECTORY ${PROJECT_BINARY_DIR})
 endif()
