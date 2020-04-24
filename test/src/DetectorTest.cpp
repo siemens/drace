@@ -12,6 +12,13 @@
 #include "detectorTest.h"
 #include "gtest/gtest.h"
 
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <mutex>
+#include <random>
+#include <thread>
+
 std::unordered_map<std::string, std::shared_ptr<util::LibraryLoader>>
     DetectorTest::_libs;
 std::unordered_map<std::string, Detector*> DetectorTest::_detectors;
@@ -377,6 +384,88 @@ TEST_F(DetectorTest, ShadowMemory) {
     detector->write(tls100, (void*)0x0100, (void*)(shadow_beg + 0xF), 8);
 }
 #endif
+
+/// just to get a realistic address
+void dummy_func() {}
+
+/// This is just a smoke test to check if the detectors
+/// do not crash (or deadlock) when accessed concurrently
+TEST_P(DetectorTest, Parallelism) {
+#ifdef DEBUG
+  constexpr size_t size = 4096;
+#else
+  constexpr size_t size = 4096 * 4;
+#endif
+  constexpr int num_threads = 4;
+
+  std::mutex mx;
+  std::atomic<bool> ready{false};
+
+  auto do_work = [&](int id, Detector::tls_t tls) {
+    int dummy;
+    auto gen = std::mt19937(42 + id);
+    auto dist_data = std::uniform_int_distribution<size_t>(0ull, size - 1);
+    auto dist_case = std::uniform_int_distribution<int>(0ull, 100);
+    uint64_t exec_base = (uint64_t)dummy_func;
+    uint64_t data_base = (uint64_t)&dummy;
+
+    // wait until all threads are created
+    while (!ready.load(std::memory_order_relaxed)) {
+      std::this_thread::yield();
+    }
+
+    for (size_t i = 0; i < size; ++i) {
+      // std::cout << "Thread " << id << " Round " << i << std::endl;
+      // fake data
+      uint64_t data = data_base + dist_data(gen) * 8;
+      uint64_t fake_pc = exec_base + dist_data(gen) * 8;
+      // perform the scenario sometimes under a lock
+      int scoped_lock_cond = dist_case(gen);
+      if (scoped_lock_cond < 2) {
+        // 2 % mutex ops
+        mx.lock();
+        detector->acquire(tls, &mx, 0, true);
+      }
+
+      // perform the scenario inside a "function"
+      int scoped_case = dist_case(gen);
+      if (scoped_case < 5) {
+        detector->func_enter(tls, (void*)(exec_base + i));
+      }
+
+      // input for scenario switch
+      if (dist_case(gen) < 20) {
+        // 20% writes
+        detector->write(tls, (void*)(fake_pc), (void*)data, 8);
+      } else {
+        // 80% reads
+        detector->read(tls, (void*)(fake_pc), (void*)data, 8);
+      }
+
+      if (scoped_case < 5) {
+        detector->func_exit(tls);
+      }
+
+      if (scoped_lock_cond < 2) {
+        detector->release(tls, &mx, true);
+        mx.unlock();
+      }
+    }
+  };
+
+  std::array<Detector::tls_t, num_threads> tls;
+  std::vector<std::thread> threads;
+  for (int i = 0; i < num_threads; ++i) {
+    detector->fork(1, i + 2, &(tls[i]));
+    threads.emplace_back(do_work, i, tls[i]);
+  }
+
+  ready.store(true, std::memory_order_relaxed);
+
+  for (auto& t : threads) {
+    t.join();
+  }
+}
 
 // Setup value-parameterized tests
 #ifdef WIN32
