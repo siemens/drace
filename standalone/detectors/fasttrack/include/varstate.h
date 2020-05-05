@@ -1,15 +1,18 @@
+#ifndef VARSTATE_HEADER_H
+#define VARSTATE_HEADER_H 1
+#pragma once
+
 /*
  * DRace, a dynamic data race detector
  *
- * Copyright 2018 Siemens AG
+ * Copyright 2020 Siemens AG
  *
  * Authors:
  *   Felix Moessbauer <felix.moessbauer@siemens.com>
+ *   Mihai Robescu <mihai-gabriel.robescu@siemens.com>
  *
  * SPDX-License-Identifier: MIT
  */
-#ifndef VARSTATE_H
-#define VARSTATE_H
 
 #include <atomic>
 #include <memory>
@@ -22,34 +25,75 @@
  * \note does not store the address to avoid redundant information
  */
 class VarState {
-  /// contains read_shared case all involved threads and clocks
-  std::unique_ptr<xvector<size_t>> shared_vc{nullptr};
+ public:
+  static constexpr uint32_t VAR_NOT_INIT = 0;
+  static constexpr uint32_t READ_SHARED = -1;
 
-  /// the upper half of the bits are the thread id the lower half is the clock
-  /// of the thread
-  std::atomic<VectorClock<>::VC_ID> w_id{VAR_NOT_INIT};
-  /// local clock of last read
-  std::atomic<VectorClock<>::VC_ID> r_id{VAR_NOT_INIT};
+ private:
+  /// local clock of last write; this is th_num (first 11 bits) + 21 bits clock
+  /// value
+  VectorClock<>::VC_EPOCH write_epoch{VAR_NOT_INIT};
 
-  /// finds the entry with the tid in the shared vectorclock
-  auto find_in_vec(VectorClock<>::TID tid) const;
+  /// local clock of last read; this is th_num (first 11 bits) + 21 bits clock
+  /// value
+  VectorClock<>::VC_EPOCH read_epoch{VAR_NOT_INIT};
 
  public:
-  static constexpr int VAR_NOT_INIT = 0;
+  VarState() = default;
 
-  /**
-   * \brief spinlock to ensure mutually-excluded access to a single VarState
-   * instance
-   *
-   * \todo this could be space optimized by having a pool of spinlocks
-   *       instead of one per VarState
-   */
-  ipc::spinlock lock;
+  /// returns id of last write access
+  constexpr VectorClock<>::VC_EPOCH get_write_epoch() const {
+    return write_epoch;
+  }
 
-  /// var size \todo make smaller
-  const uint16_t size;
+  /// returns id of last read access (when read is not shared)
+  constexpr VectorClock<>::VC_EPOCH get_read_epoch() const {
+    return read_epoch;
+  }
 
-  explicit inline VarState(uint16_t var_size) : size(var_size) {}
+  /// sets id of last write access
+  constexpr void set_write_epoch(VectorClock<>::VC_EPOCH epoch) {
+    write_epoch = epoch;
+  }
+
+  /// sets id of last read access (when read is not shared)
+  constexpr void set_read_epoch(VectorClock<>::VC_EPOCH epoch) {
+    read_epoch = epoch;
+  }
+
+  /// return tid of thread which last wrote to this memory location
+  constexpr VectorClock<>::TID get_write_thread_id() const {
+    return VectorClock<>::make_thread_id(write_epoch);
+  }
+
+  /// return tid of thread which last read this memory location, if not read
+  /// shared
+  constexpr VectorClock<>::TID get_read_thread_id() const {
+    return VectorClock<>::make_thread_id(read_epoch);
+  }
+
+  /// return thread number of thread which last read this memory location, if
+  /// not read shared
+  constexpr VectorClock<>::ThreadNum get_write_thread_num() const {
+    return VectorClock<>::make_thread_num(write_epoch);
+  }
+
+  /// return thread number of thread which last wrote to this memory location,
+  /// if not read shared
+  constexpr VectorClock<>::ThreadNum get_read_thread_num() const {
+    return VectorClock<>::make_thread_num(read_epoch);
+  }
+
+  /// returns clock value of thread of last write access
+  constexpr VectorClock<>::Clock get_write_clock() const {
+    return VectorClock<>::make_clock(write_epoch);
+  }
+
+  /// returns clock value of thread of last read access (returns 0 when read is
+  /// shared)
+  constexpr VectorClock<>::Clock get_read_clock() const {
+    return VectorClock<>::make_clock(read_epoch);
+  }
 
   /// evaluates for write/write races through this and and access through t
   bool is_ww_race(ThreadState* t) const;
@@ -62,57 +106,31 @@ class VarState {
   bool is_rw_ex_race(ThreadState* t) const;
 
   /// evaluates for read-shared/write races through this and and access through
-  /// t
-  VectorClock<>::TID is_rw_sh_race(ThreadState* t) const;
+  /// "t"
+  VectorClock<>::ThreadNum VarState::is_rw_sh_race(
+      ThreadState* t, xvector<VectorClock<>::VC_EPOCH>* shared_vc) const;
 
-  /// returns id of last write access
-  inline VectorClock<>::VC_ID get_write_id() const {
-    return w_id.load(std::memory_order_relaxed);
-  }
-
-  /// returns id of last read access (when read is not shared)
-  inline VectorClock<>::VC_ID get_read_id() const {
-    return r_id.load(std::memory_order_relaxed);
-  }
-
-  /// return tid of thread which last wrote this var
-  inline VectorClock<>::TID get_w_tid() const {
-    return VectorClock<>::make_tid(w_id.load(std::memory_order_relaxed));
-  }
-
-  /// return tid of thread which last read this var, if not read shared
-  inline VectorClock<>::TID get_r_tid() const {
-    return VectorClock<>::make_tid(r_id.load(std::memory_order_relaxed));
-  }
-
-  /// returns clock value of thread of last write access
-  inline VectorClock<>::Clock get_w_clock() const {
-    return VectorClock<>::make_clock(w_id.load(std::memory_order_relaxed));
-  }
-
-  /// returns clock value of thread of last read access (returns 0 when read is
-  /// shared)
-  inline VectorClock<>::Clock get_r_clock() const {
-    return VectorClock<>::make_clock(r_id.load(std::memory_order_relaxed));
-  }
-
-  /// returns true when read is shared
-  bool is_read_shared() const { return (shared_vc == nullptr) ? false : true; }
-
-  /// updates the var state because of an new read or write access through an
-  /// thread
-  void update(bool is_write, size_t id);
-
-  /// sets read state to shared
-  void set_read_shared(size_t id);
+  /// finds the entry with the th_num in the shared vectorclock
+  static std::vector<VectorClock<>::VC_EPOCH>::iterator VarState::find_in_vec(
+      VectorClock<>::ThreadNum th_num,
+      xvector<VectorClock<>::VC_EPOCH>*
+          shared_vc);  // made static as it does not depend on the VarState
+                       // instance
 
   /// if in read_shared state, then returns id of position pos in vector clock
-  VectorClock<>::VC_ID get_sh_id(uint32_t pos) const;
+  VectorClock<>::VC_EPOCH VarState::get_sh_id(
+      uint32_t pos, xvector<VectorClock<>::VC_EPOCH>* shared_vc) const;
 
-  /// return stored clock value, which belongs to ThreadState t, 0 if not
+  /// return stored epoch (th_num + clock) value, which belongs to ThreadNum
+  /// th_num or 0 if not available
+  VectorClock<>::VC_EPOCH VarState::get_vc_by_th_num(
+      VectorClock<>::ThreadNum th_num,
+      xvector<VectorClock<>::VC_EPOCH>* shared_vc) const;
+
+  /// return stored clock value, which belongs to ThreadNum th_num or 0 if not
   /// available
-  VectorClock<>::VC_ID get_vc_by_thr(VectorClock<>::TID t) const;
-
-  VectorClock<>::Clock get_clock_by_thr(VectorClock<>::TID t) const;
+  VectorClock<>::Clock VarState::get_clock_by_th_num(
+      VectorClock<>::ThreadNum th_num,
+      xvector<VectorClock<>::VC_EPOCH>* shared_vc) const;
 };
 #endif  // !VARSTATE_H
