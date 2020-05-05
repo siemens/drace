@@ -8,10 +8,13 @@
  *
  * SPDX-License-Identifier: MIT
  */
+#include <execution>
 #include <fstream>
 #include <iostream>
+#include <intrin.h>
 
 #include <clipp.h>
+#include <detector/Detector.h>
 #include <ipc/ExtsanData.h>
 #include "DetectorOutput.h"
 
@@ -19,6 +22,12 @@ int main(int argc, char** argv) {
   //    std::string detec = "drace.detector.tsan.dll";
   std::string detec = "drace.detector.fasttrack.standalone.dll";
   std::string file = "trace.bin";
+
+  // EASY_PROFILER_ENABLE;
+  // EASY_MAIN_THREAD;  // Give a name to main thread, same as
+  // EASY_THREAD("Main")
+  // EASY_BLOCK("doing sth")
+  // profiler::dumpBlocksToFile("fasttrack_test.prof");
 
   auto cli = clipp::group(
       (clipp::option("-d", "--detector") & clipp::value("detector", detec)) %
@@ -49,10 +58,18 @@ int main(int argc, char** argv) {
     // int i = 0;
 
     if (in_file.read((char*)(buffer.data()), size).good()) {
-      for (auto it = buffer.begin(); it != buffer.end(); ++it) {
+      /*for_each(std::execution::par, buffer.begin(), buffer.end(), [&output]
+      (auto&& item){ ipc::event::BufferEntry tmp = item;
+            output.makeOutput(&tmp);
+      });*/
+
+      ///////////////////////// Correct version //////////////////////////
+       for (auto it = buffer.begin(); it != buffer.end(); ++it) {
         ipc::event::BufferEntry tmp = *it;
         output.makeOutput(&tmp);
       }
+      __debugbreak();
+      _DEBUG_EVENT;
     }
   } catch (const std::exception& e) {
     std::cerr << "Could not load detector: " << e.what() << std::endl;

@@ -19,7 +19,7 @@
 
 /// implements a threadstate, holds the thread's vectorclock and the thread's id
 /// (tid and act clock)
-class ThreadState : public VectorClock<> {
+class ThreadState : public VectorClock<> { //TODO: why do we inherit from VectorClock ?
  private:
   /// holds the tid and the actual clock value -> lower 32 bits are clock, upper
   /// 32 are the tid

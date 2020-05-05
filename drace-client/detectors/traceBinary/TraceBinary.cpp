@@ -23,8 +23,8 @@
 #define TRACEBINARY_EXPORT
 #endif
 
-using namespace ipc::event;
 
+using namespace ipc::event;
 namespace drace {
 namespace detector {
 /// Fake detector that traces all calls to the \ref Detector interface
@@ -36,7 +36,7 @@ class TraceBinary : public Detector {
  public:
   TraceBinary() {
     iolock = dr_mutex_create();
-    file = std::fstream("trace.bin", std::ios::out | std::ios::binary);
+    file = std::fstream("C:\\Users\\mihai\\CMakeBuilds\\df2d6b68-b33d-ba31-8d1d-71e3bd4790a7\\build\\trace\\trace.bin", std::ios::out | std::ios::binary);
   }
 
   virtual bool init(int argc, const char** argv, Callback rc_clb) {

@@ -23,9 +23,18 @@
 #include "varstate.h"
 #include "xvector.h"
 
-#define MAKE_OUTPUT false
 #define REGARD_ALLOCS true
+#define MAKE_OUTPUT false
 #define POOL_ALLOC false
+
+//----------------------------------------------------------------------------------------------
+#define PROF_INFO true  // define profiling => for optimization detection
+#if PROF_INFO
+#include <iomanip>
+#include <cstdio>
+#define deb(x) std::cout << #x << " = " << std::setw(3) << x << " ";
+#endif
+//----------------------------------------------------------------------------------------------
 
 ///\todo implement a pool allocator
 #if POOL_ALLOC
@@ -51,16 +60,25 @@ class Fasttrack : public Detector {
 #endif
 
  private:
+//----------------------------------------------------------------------------------------------
+#if PROF_INFO
+   phmap::flat_hash_map<std::size_t, ipc::spinlock> var_locks;
+   size_t size_on_stack = 0;
+#endif
+//----------------------------------------------------------------------------------------------
   /// these maps hold the various state objects together with the identifiers
   phmap::parallel_flat_hash_map<size_t, size_t> allocs;
   // we have to use a node hash map here, as we access the nodes from multiple
   // threads, while the map might grow in the meantime. \todo for memory
   // efficiency and locality, better use (userspace) RW-locks and use
   //       the flat version of the map
+  // TODO: use (userspace) RW-locks
+  // TODO: try to use flat version of the map
   phmap::parallel_node_hash_map<size_t, VarState> vars;
   // number of locks, threads is expected to be < 1000, hence use one map
   // (without submaps)
   phmap::flat_hash_map<void*, VectorClock<>> locks;
+
   phmap::flat_hash_map<tid_ft, ts_ptr> threads;
   phmap::parallel_flat_hash_map<void*, VectorClock<>> happens_states;
 
@@ -68,7 +86,7 @@ class Fasttrack : public Detector {
   Callback clb;
 
   /// switch logging of read/write operations
-  bool log_flag = false;
+  bool log_flag = true;
 
   /// internal statistics
   struct log_counters {
@@ -84,9 +102,8 @@ class Fasttrack : public Detector {
 
   /// central lock, used for accesses to global tables except vars (order: 1)
   LockT g_lock;  // global Lock
-
-  /// spinlock to protect accesses to vars table (order: 2)
-  mutable ipc::spinlock vars_spl;
+  
+  mutable ipc::spinlock vars_spl; /// spinlock to protect accesses to vars table (order: 2)
 
   /**
    * \brief report a data-race back to DRace
@@ -96,6 +113,8 @@ class Fasttrack : public Detector {
    */
   void report_race(uint32_t thr1, uint32_t thr2, bool wr1, bool wr2,
                    const VarState& var, size_t address) const {
+    std::cout << "report_race has been called" << std::endl;
+
     auto it = threads.find(thr1);
     auto it2 = threads.find(thr2);
     auto it_end = threads.end();
@@ -105,6 +124,7 @@ class Fasttrack : public Detector {
                           // traces anymore, return
       return;
     }
+    std::cout << "building the stack" << std::endl;
     std::list<size_t> stack1(
         std::move(it->second->get_stackDepot().return_stack_trace(address)));
     std::list<size_t> stack2(
@@ -116,6 +136,7 @@ class Fasttrack : public Detector {
     while (stack2.size() > Detector::max_stack_size) {
       stack2.pop_front();
     }
+    std::cout << "reached before building access entry" << std::endl;
 
     Detector::AccessEntry access1;
     access1.thread_id = thr1;
@@ -171,7 +192,7 @@ class Fasttrack : public Detector {
       return;
     }
 
-    size_t id = t->return_own_id();
+    size_t id = t->return_own_id();  // id means epoch
     uint32_t tid = t->get_tid();
 
     if (v->is_read_shared() &&
@@ -190,23 +211,24 @@ class Fasttrack : public Detector {
     if (!v->is_read_shared()) {
       if (v->get_read_id() == VarState::VAR_NOT_INIT ||
           (v->get_r_tid() ==
-           tid))  // read exclusive->read of same thread but newer epoch
-      {
+           tid)) {  // read exclusive => read of same thread but newer epoch
+        v->update(false, id);
         if (log_flag) {
           log_count.read_exclusive++;
         }
-        v->update(false, id);
-      } else {  // read gets shared
+      } else  // => means that (v->get_r_tid() != tid) && or variable hasn't
+              // been read yet
+      {       // read gets shared
+        v->set_read_shared(id);
         if (log_flag) {
           log_count.read_share++;
         }
-        v->set_read_shared(id);
       }
     } else {  // read shared
+      v->update(false, id);
       if (log_flag) {
         log_count.read_shared++;
       }
-      v->update(false, id);
     }
   }
 
@@ -267,6 +289,9 @@ class Fasttrack : public Detector {
    */
   inline auto create_var(size_t addr, size_t size) {
     return vars.emplace(addr, static_cast<uint16_t>(size)).first;
+    //return vars.emplace(std::piecewise_construct, std::forward_as_tuple(addr),
+    //  std::forward_as_tuple(size))
+    //  .first;
   }
 
   /// creates a new lock object (is called when a lock is acquired or released
@@ -359,11 +384,8 @@ class Fasttrack : public Detector {
 
   /**
    * \brief deletes all data which is related to the tid
-   *
    * is called when a thread finishes (either from \ref join() or from \ref
-   * finish())
-   *
-   * \note Not Threadsafe
+   * finish()) \note Not Threadsafe
    */
   void cleanup(uint32_t tid) {
     {
@@ -422,6 +444,21 @@ class Fasttrack : public Detector {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
     thr->get_stackDepot().set_read_write((size_t)(addr),
                                          reinterpret_cast<size_t>(pc));
+    auto it_lock = var_locks.find((std::size_t) addr);
+
+    if (it_lock == var_locks.end()) {
+      //ipc::spinlock tmp;
+      it_lock = var_locks.emplace((std::size_t)addr, ipc::spinlock()).first;
+    }
+
+    ipc::spinlock& var_lock = it_lock->second;
+    std::lock_guard<ipc::spinlock> lg(var_lock);
+
+
+    // TODO: maybe put VarState on the stack?
+    // TODO: lock on the addr hs to be placed here, before the another thread can get a copy of
+    // the wrong value; If we modify a var on read, we cannot modify on write as well
+    //VarState var(size);
     VarState* var;
     {
       std::lock_guard<ipc::spinlock> exLockT(vars_spl);
@@ -430,13 +467,65 @@ class Fasttrack : public Detector {
 #if MAKE_OUTPUT
         std::cout << "variable is read before written" << std::endl;  // warning
 #endif
-        it = create_var((size_t)(addr), size);
+        it = create_var((size_t)(addr), //ILLEGAL if we use parallal_flat_hash_map
+                        size);  // now the parallel_node_hash_map might move.
       }
-      var = &(it->second);
+      var = &(it->second);  // finds the VarState instance of a specific addr or
+                            // creates it
     }
-    std::lock_guard<ipc::spinlock> lg(var->lock);
+
+#if PROF_INFO   
+/*
+---------------------------------------------------------------------
+   TODO: check 2 things
+   1. size of the VarState. should be the same
+   2. the size of the memory to be read
+
+  if (mem_ref->write) { // => from memory-tracker.cpp
+        detector->write(
+            data.detector_data, reinterpret_cast<void *>(mem_ref->pc),
+            reinterpret_cast<void *>(mem_ref->addr), mem_ref->size);
+---------------------------------------------------------------------
+*/
+    //create pointer to that var
+    //deb(size_on_stack);
+    //deb(sizeof(ipc::spinlock));
+    std::cout << " (size_t)addr " << " = " << std::hex << std::setw(10) << (size_t)addr << " ";
+    std::cout << std::endl;
+    //deb((size_t)addr);
+    deb(sizeof(vars));
+
+    std::array<ipc::spinlock, 10> spinlocks;
+    ipc::spinlock &lock = spinlocks[hashOf((std::size_t) addr) % 10];
+
+    std::cout << std::endl;
+#endif
+
+    // TODO: here is the pointer to var which gets invalidated if vars moves.
+    // and everything after; it invalidates my lock and all of my data afterwards if it gets moved
+    //std::lock_guard<ipc::spinlock> lg(var->lock);
     read(thr, var, (size_t)addr);
+
+#if PROF_INFO
+    var_locks.erase((std::size_t)addr);
+    //auto it = vars.find((size_t)(addr));
+    //it->second = var;
+    //size_on_stack -= sizeof(*var);
+    //deb(size_on_stack);
+#endif
   }
+
+#if PROF_INFO
+  std::size_t hashOf(std::size_t addr) {
+    std::size_t tmp = (std::size_t)addr;
+    std::size_t result = 0;
+    while (tmp != 0) {
+      result += tmp % 10;
+      tmp /= 10;
+    }
+    return tmp;
+  }
+#endif
 
   void write(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
@@ -457,7 +546,7 @@ class Fasttrack : public Detector {
 
   void func_enter(tls_t tls, void* pc) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().push_stack_element(reinterpret_cast<size_t>(pc));
+    thr->get_stackDepot().push_stack_element    (reinterpret_cast<size_t>(pc));
   }
 
   void func_exit(tls_t tls) final {
@@ -486,7 +575,9 @@ class Fasttrack : public Detector {
     ts_ptr del_thread = threads[child];
     del_thread->inc_vc();
     // pass incremented clock of deleted thread to parent
-    threads[parent]->update(*del_thread);
+    threads[parent]->update(
+        *del_thread);  // TODO: increment straight here the clock. don't waste
+                       // time to increment that clock
     threads.erase(child);
     cleanup(child);
   }
@@ -527,6 +618,7 @@ class Fasttrack : public Detector {
     it->second.update(thr);
   }
 
+  // identifier = TID of another thread, which happens before our thread
   void happens_before(tls_t tls, void* identifier) final {
     std::lock_guard<LockT> exLockT(g_lock);
     auto it = happens_states.find(identifier);
@@ -565,16 +657,23 @@ class Fasttrack : public Detector {
 #endif
   }
 
+  // when we deallocate a variable we erase it from the VarState
   void deallocate(tls_t tls, void* addr) final {
 #if REGARD_ALLOCS
     size_t address = reinterpret_cast<size_t>(addr);
     size_t end_addr;
 
     std::lock_guard<LockT> exLockT(g_lock);
-    end_addr = address + allocs[address];
+    end_addr = address + allocs[address];  // allocs[address] = size;
 
     // variable is deallocated so varstate objects can be destroyed
-    while (address < end_addr) {
+    while (address < end_addr) {  // we go and deallocate each address
+      /*
+      Let's say we have a big vector that gets allocated. we track the
+      allocation, but we don't create the Var state objects for the adresses. We
+      create them 1 by 1 on each access. But when we deallocate we clear all of
+      them.
+      */
       std::lock_guard<ipc::spinlock> lg(vars_spl);
       if (vars.find(address) != vars.end()) {
         auto& var = vars.find(address)->second;

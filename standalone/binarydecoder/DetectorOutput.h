@@ -41,7 +41,7 @@ class DetectorOutput {
 
     const char* _argv = "";
     _det->init(1, &_argv, callback);
-
+    std::cout << detector << std::endl;
     std::cout << "init_done\n";
   }
 

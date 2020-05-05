@@ -55,9 +55,7 @@ VectorClock<>::TID VarState::is_rw_sh_race(ThreadState* t) const {
   return 0;
 }
 
-/**
- * \todo optimize using vector instructions
- */
+// TODO: optimize using vector instructions
 auto VarState::find_in_vec(VectorClock<>::TID tid) const {
   for (auto it = shared_vc->begin(); it != shared_vc->end(); ++it) {
     if (VectorClock<>::make_tid(*it) == tid) {

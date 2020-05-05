@@ -63,6 +63,7 @@ class VectorClock {
     }
   };
 
+  //TODO: maybe use an rvalue reference ?
   /// updates this.vc with values of other.vc, if they're larger -> one way
   /// update
   void update(const VectorClock& other) {
@@ -126,5 +127,4 @@ class VectorClock {
     return tid * VectorClock::multplier;
   }
 };
-
 #endif

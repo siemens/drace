@@ -33,10 +33,10 @@ namespace ipc {
  * \note this spinlock is cache-coherence friendly and
  *       has optimizations for hyper-threading CPUs
  */
-class spinlock : public std::mutex {
+class spinlock{
+ public:
   std::atomic<bool> _locked{false};
 
- public:
   inline void lock() noexcept {
     for (int spin_count = 0; !try_lock(); ++spin_count) {
       if (spin_count < 16) {
@@ -49,6 +49,11 @@ class spinlock : public std::mutex {
         std::this_thread::yield();
       }
     }
+  }
+
+  spinlock() = default;
+  spinlock(spinlock&& s) {
+    this->_locked = s._locked.load(std::memory_order_relaxed);
   }
 
   inline bool try_lock() noexcept {
@@ -64,5 +69,4 @@ class spinlock : public std::mutex {
     _locked.store(false, std::memory_order_release);
   }
 };
-
 }  // namespace ipc

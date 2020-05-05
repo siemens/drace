@@ -23,11 +23,11 @@
  */
 class VarState {
   /// contains read_shared case all involved threads and clocks
-  std::unique_ptr<xvector<size_t>> shared_vc{nullptr};
+  std::shared_ptr<std::vector<size_t>> shared_vc{nullptr};
+  //made this shared & switched to vector => needed for the copy constructor
 
-  /// the upper half of the bits are the thread id the lower half is the clock
-  /// of the thread
-  std::atomic<VectorClock<>::VC_ID> w_id{VAR_NOT_INIT};
+  /// the upper half of the bits are the thread id the lower half is the clock of the thread
+  std::atomic<VectorClock<>::VC_ID> w_id{VAR_NOT_INIT}; //these are epochs
   /// local clock of last read
   std::atomic<VectorClock<>::VC_ID> r_id{VAR_NOT_INIT};
 
@@ -40,15 +40,30 @@ class VarState {
   /**
    * \brief spinlock to ensure mutually-excluded access to a single VarState
    * instance
-   *
-   * \todo this could be space optimized by having a pool of spinlocks
-   *       instead of one per VarState
    */
-  ipc::spinlock lock;
+  ipc::spinlock lock; //TODO: pool of spinlocks instead of one per Varstate 
 
-  /// var size \todo make smaller
-  const uint16_t size;
+  // var size 
+  uint16_t size;// TODO: make size smaller
+  //TODO: remove the const for copy constructor if we move to flat_hash_map 
 
+//----------------------------------------------------------------------------------------------
+  //added by me
+  explicit VarState() = default;
+  VarState(const VarState& v){
+    this->shared_vc = v.shared_vc;
+    this->w_id = v.w_id.load();
+    this->r_id = v.r_id.load();
+    this->size = v.size;
+  } //= default; //copy constructor
+  VarState& operator= (const VarState& other) {//copy assignment operator
+    this->shared_vc = other.shared_vc;
+    this->w_id = other.w_id.load();
+    this->r_id = other.r_id.load();
+    return *this;
+  }
+//----------------------------------------------------------------------------------------------
+  
   explicit inline VarState(uint16_t var_size) : size(var_size) {}
 
   /// evaluates for write/write races through this and and access through t

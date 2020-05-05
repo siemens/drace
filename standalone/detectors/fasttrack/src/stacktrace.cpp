@@ -92,13 +92,14 @@ void StackTrace::push_stack_element(size_t element) {
   }
 
   tmp = boost::add_vertex({element}, _local_stack);
-  boost::add_edge(tmp, _ce, _local_stack);
-  _ce = tmp;
+  boost::add_edge(tmp, _ce, _local_stack);//add an edge from last function to this new call(they are stacked)
+  _ce = tmp; //make the current element of the graph the new function call;
 }
 
 /// when a var is written or read, it copies the stack and adds the pc of the
 /// r/w operation to be able to return the stack trace if a race was detected
 void StackTrace::set_read_write(size_t addr, size_t pc) {
+
   std::lock_guard<ipc::spinlock> lg(lock);
   auto it = _read_write.find(addr);
   if (it == _read_write.end()) {
@@ -116,7 +117,7 @@ std::list<size_t> StackTrace::return_stack_trace(size_t address) const {
     auto data = it->second;
     return make_trace(data);
   }
-  // A read/write operation was not tracked correctly -> return empty stack
-  // trace
+  // A read/write operation was not tracked correctly -> return empty stacktrace
+  // We end up here if we couldn't find the address in the _read_write flat_hash_map
   return {};
 }

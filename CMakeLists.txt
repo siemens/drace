@@ -26,7 +26,7 @@ else()
 	set(DEFAULT_DRACE_CPPCHECK_BIN "/usr/bin/cppcheck")
 endif()
 
-set(BUILD_TESTING OFF CACHE BOOL "Build Tests")
+set(BUILD_TESTING ON CACHE BOOL "Build Tests")
 set(DRACE_ENABLE_BENCH OFF CACHE BOOL "Build Benchmarks")
 set(DRACE_ENABLE_CPPCHECK OFF CACHE BOOL "Enable CPPCheck")
 set(BUILD_CSHARP_EXAMPLES OFF CACHE BOOL "Build C# Examples")
@@ -37,8 +37,10 @@ set(DRACE_XML_EXPORTER ON CACHE BOOL "Build with Valkyrie compatible XML exporte
 set(DRACE_LOGLEVEL "2" CACHE STRING "Set loglevel of DRace (0: error, 1: warning, ... 4: trace)")
 set(OPTIMIZE_FOR_NATIVE OFF CACHE BOOL "Build standalone components with -march=native")
 
+set(BOOST_LIBRARYDIR ${BOOST_ROOT}/libs)
+
 # install targets
-set(DRACE_INSTALL_TESTS OFF CACHE BOOL "Install test target")
+set(DRACE_INSTALL_TESTS ON CACHE BOOL "Install test target")
 set(DRACE_INSTALL_BENCH OFF CACHE BOOL "Install benchmarks")
 set(DRACE_INSTALL_DOCS  ON  CACHE BOOL "Install documentation")
 
@@ -128,6 +130,10 @@ add_subdirectory("standalone")
 # Tutorial
 add_subdirectory("HowTo")
 
+
+add_subdirectory("helper")
+
+
 if(DRACE_ENABLE_RUNTIME)
 	# DRACE
 	add_subdirectory("drace-client")
@@ -138,6 +144,7 @@ if(DRACE_ENABLE_RUNTIME)
 endif()
 
 if(BUILD_TESTING)
+message(STATUS "Build Testing")
 	add_subdirectory("test")
 endif()
 
