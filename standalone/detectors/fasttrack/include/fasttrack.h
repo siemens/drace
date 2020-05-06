@@ -27,14 +27,19 @@
 #define MAKE_OUTPUT false
 #define POOL_ALLOC false
 
-//----------------------------------------------------------------------------------------------
-#define PROF_INFO true  // define profiling => for optimization detection
+/*
+---------------------------------------------------------------------
+Define profiling for optimization
+---------------------------------------------------------------------
+*/
+#define PROF_INFO false  // define profiling => for optimization detection
 #if PROF_INFO
-#include <iomanip>
 #include <cstdio>
+#include <iomanip>
+#include <thread>
+#include <unordered_map>
 #define deb(x) std::cout << #x << " = " << std::setw(3) << x << " ";
 #endif
-//----------------------------------------------------------------------------------------------
 
 ///\todo implement a pool allocator
 #if POOL_ALLOC
@@ -60,25 +65,23 @@ class Fasttrack : public Detector {
 #endif
 
  private:
-//----------------------------------------------------------------------------------------------
-#if PROF_INFO
-   phmap::flat_hash_map<std::size_t, ipc::spinlock> var_locks;
-   size_t size_on_stack = 0;
-#endif
-//----------------------------------------------------------------------------------------------
+  std::atomic<std::size_t> size_on_stack = 0;
+/*
+---------------------------------------------------------------------
+What is defined until here is self made
+TODO:
+1. vars => use flat version of the map for memory efficiency and locality
+2. (tried) detect movement of the flat_hash_map
+---------------------------------------------------------------------
+*/
   /// these maps hold the various state objects together with the identifiers
   phmap::parallel_flat_hash_map<size_t, size_t> allocs;
   // we have to use a node hash map here, as we access the nodes from multiple
-  // threads, while the map might grow in the meantime. \todo for memory
-  // efficiency and locality, better use (userspace) RW-locks and use
-  //       the flat version of the map
-  // TODO: use (userspace) RW-locks
-  // TODO: try to use flat version of the map
-  phmap::parallel_node_hash_map<size_t, VarState> vars;
+  // threads, while the map might grow in the meantime.
+  phmap::parallel_flat_hash_map<size_t, VarState> vars;
   // number of locks, threads is expected to be < 1000, hence use one map
   // (without submaps)
   phmap::flat_hash_map<void*, VectorClock<>> locks;
-
   phmap::flat_hash_map<tid_ft, ts_ptr> threads;
   phmap::parallel_flat_hash_map<void*, VectorClock<>> happens_states;
 
@@ -102,8 +105,9 @@ class Fasttrack : public Detector {
 
   /// central lock, used for accesses to global tables except vars (order: 1)
   LockT g_lock;  // global Lock
-  
-  mutable ipc::spinlock vars_spl; /// spinlock to protect accesses to vars table (order: 2)
+
+  /// spinlock to protect accesses to vars table (order: 2)
+  mutable ipc::spinlock vars_spl;
 
   /**
    * \brief report a data-race back to DRace
@@ -289,7 +293,8 @@ class Fasttrack : public Detector {
    */
   inline auto create_var(size_t addr, size_t size) {
     return vars.emplace(addr, static_cast<uint16_t>(size)).first;
-    //return vars.emplace(std::piecewise_construct, std::forward_as_tuple(addr),
+    // return vars.emplace(std::piecewise_construct,
+    // std::forward_as_tuple(addr),
     //  std::forward_as_tuple(size))
     //  .first;
   }
@@ -439,114 +444,96 @@ class Fasttrack : public Detector {
       process_log_output();
     }
   }
+  /*
+  ---------------------------------------------------------------------
+  TODO:
+  1. put VarState on the stack & switch to using a flat_hash_map
+  2. pool of spinlocks instead of one per Varstate
+  3. place lock on the addr before any access to vars hash_map
+  before another thread can get a copy of the wrong value
 
+  var = &(it->second); gets invalidated if the hash_map moves and we
+  send it further to read/report_race etc
+
+  if (mem_ref->write) { // => from memory-tracker.cpp
+      detector->write(
+          data.detector_data, reinterpret_cast<void *>(mem_ref->pc),
+          reinterpret_cast<void *>(mem_ref->addr), mem_ref->size);
+  }
+  ---------------------------------------------------------------------
+  */
+  inline std::size_t Fasttrack::hashOf(std::size_t addr) { return (addr >> 4); }
+
+  std::array<ipc::spinlock, 100> spinlocks;
   void read(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
     thr->get_stackDepot().set_read_write((size_t)(addr),
                                          reinterpret_cast<size_t>(pc));
-    auto it_lock = var_locks.find((std::size_t) addr);
-
-    if (it_lock == var_locks.end()) {
-      //ipc::spinlock tmp;
-      it_lock = var_locks.emplace((std::size_t)addr, ipc::spinlock()).first;
-    }
-
-    ipc::spinlock& var_lock = it_lock->second;
-    std::lock_guard<ipc::spinlock> lg(var_lock);
-
-
-    // TODO: maybe put VarState on the stack?
-    // TODO: lock on the addr hs to be placed here, before the another thread can get a copy of
-    // the wrong value; If we modify a var on read, we cannot modify on write as well
-    //VarState var(size);
-    VarState* var;
     {
-      std::lock_guard<ipc::spinlock> exLockT(vars_spl);
-      auto it = vars.find((size_t)(addr));
-      if (it == vars.end()) {  // create new variable if new
+      std::lock_guard<ipc::spinlock> lg(
+          spinlocks[hashOf((std::size_t)addr) % spinlocks.size()]);
+
+      VarState var(size);
+      // VarState* var;
+      {  // finds the VarState instance of a specific addr or creates it
+        std::lock_guard<ipc::spinlock> exLockT(vars_spl);
+        auto it = vars.find((size_t)(addr));
+        if (it == vars.end()) {
 #if MAKE_OUTPUT
-        std::cout << "variable is read before written" << std::endl;  // warning
+          std::cout << "variable is read before written"
+                    << std::endl;  // warning
 #endif
-        it = create_var((size_t)(addr), //ILLEGAL if we use parallal_flat_hash_map
-                        size);  // now the parallel_node_hash_map might move.
+          it = create_var((size_t)(addr), size);
+        }
+        var = (it->second);
       }
-      var = &(it->second);  // finds the VarState instance of a specific addr or
-                            // creates it
-    }
-
-#if PROF_INFO   
-/*
----------------------------------------------------------------------
-   TODO: check 2 things
-   1. size of the VarState. should be the same
-   2. the size of the memory to be read
-
-  if (mem_ref->write) { // => from memory-tracker.cpp
-        detector->write(
-            data.detector_data, reinterpret_cast<void *>(mem_ref->pc),
-            reinterpret_cast<void *>(mem_ref->addr), mem_ref->size);
----------------------------------------------------------------------
-*/
-    //create pointer to that var
-    //deb(size_on_stack);
-    //deb(sizeof(ipc::spinlock));
-    std::cout << " (size_t)addr " << " = " << std::hex << std::setw(10) << (size_t)addr << " ";
-    std::cout << std::endl;
-    //deb((size_t)addr);
-    deb(sizeof(vars));
-
-    std::array<ipc::spinlock, 10> spinlocks;
-    ipc::spinlock &lock = spinlocks[hashOf((std::size_t) addr) % 10];
-
-    std::cout << std::endl;
-#endif
-
-    // TODO: here is the pointer to var which gets invalidated if vars moves.
-    // and everything after; it invalidates my lock and all of my data afterwards if it gets moved
-    //std::lock_guard<ipc::spinlock> lg(var->lock);
-    read(thr, var, (size_t)addr);
-
 #if PROF_INFO
-    var_locks.erase((std::size_t)addr);
-    //auto it = vars.find((size_t)(addr));
-    //it->second = var;
-    //size_on_stack -= sizeof(*var);
-    //deb(size_on_stack);
+      // it_lock->second.unlock();
+      size_on_stack += sizeof(var);
+      deb(size_on_stack);
+#endif
+      read(thr, &var, (size_t)addr);
+      // copy back from the stack into the var.
+      auto it = vars.find((size_t)addr);
+      it->second = var;
+    }
+#if PROF_INFO
+    size_on_stack -= sizeof(VarState);
 #endif
   }
-
-#if PROF_INFO
-  std::size_t hashOf(std::size_t addr) {
-    std::size_t tmp = (std::size_t)addr;
-    std::size_t result = 0;
-    while (tmp != 0) {
-      result += tmp % 10;
-      tmp /= 10;
-    }
-    return tmp;
-  }
-#endif
 
   void write(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
     thr->get_stackDepot().set_read_write((size_t)addr,
                                          reinterpret_cast<size_t>(pc));
-    VarState* var;
     {
-      std::lock_guard<ipc::spinlock> exLockT(vars_spl);
-      auto it = vars.find((size_t)addr);
-      if (it == vars.end()) {
-        it = create_var((size_t)(addr), size);
+      std::lock_guard<ipc::spinlock> lg(
+          spinlocks[hashOf((std::size_t)addr) % spinlocks.size()]);
+      VarState var(size);
+      {
+        std::lock_guard<ipc::spinlock> exLockT(vars_spl);
+        auto it = vars.find((size_t)addr);
+        if (it == vars.end()) {
+          it = create_var((size_t)(addr), size);
+        }
+        var = (it->second);
       }
-      var = &(it->second);
+#if PROF_INFO
+      size_on_stack += sizeof(var);
+      deb(size_on_stack);
+#endif
+      write(thr, &var, (size_t)addr);
+      auto it = vars.find((size_t)addr);
+      it->second = var;
     }
-    std::lock_guard<ipc::spinlock> lg(var->lock);
-    write(thr, var, (size_t)addr);
+#if PROF_INFO
+    size_on_stack -= sizeof(VarState);
+#endif
   }
 
   void func_enter(tls_t tls, void* pc) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().push_stack_element    (reinterpret_cast<size_t>(pc));
+    thr->get_stackDepot().push_stack_element(reinterpret_cast<size_t>(pc));
   }
 
   void func_exit(tls_t tls) final {

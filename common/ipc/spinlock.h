@@ -34,8 +34,8 @@ namespace ipc {
  *       has optimizations for hyper-threading CPUs
  */
 class spinlock{
- public:
   std::atomic<bool> _locked{false};
+ public:
 
   inline void lock() noexcept {
     for (int spin_count = 0; !try_lock(); ++spin_count) {
@@ -49,11 +49,6 @@ class spinlock{
         std::this_thread::yield();
       }
     }
-  }
-
-  spinlock() = default;
-  spinlock(spinlock&& s) {
-    this->_locked = s._locked.load(std::memory_order_relaxed);
   }
 
   inline bool try_lock() noexcept {
