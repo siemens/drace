@@ -32,13 +32,15 @@
 Define profiling for optimization
 ---------------------------------------------------------------------
 */
-#define PROF_INFO false  // define profiling => for optimization detection
+#define PROF_INFO true  // define profiling => for optimization detection
 #if PROF_INFO
 #include <cstdio>
 #include <iomanip>
 #include <thread>
 #include <unordered_map>
-#define deb(x) std::cout << #x << " = " << std::setw(3) << x << " ";
+#include <boost/any.hpp>
+
+#define deb(x) std::cout << #x << " = " << std::setw(3) << x << " "
 #endif
 
 ///\todo implement a pool allocator
@@ -65,15 +67,16 @@ class Fasttrack : public Detector {
 #endif
 
  private:
-  std::atomic<std::size_t> size_on_stack = 0;
-/*
----------------------------------------------------------------------
-What is defined until here is self made
-TODO:
-1. vars => use flat version of the map for memory efficiency and locality
-2. (tried) detect movement of the flat_hash_map
----------------------------------------------------------------------
-*/
+  // maps address to the status of read_shared
+  phmap::node_hash_map<std::size_t, xvector<std::size_t>> shared_vcs;
+  /*
+  ---------------------------------------------------------------------
+  What is defined until here is self made
+  TODO:
+  1. vars => use flat version of the map for memory efficiency and locality
+  2. (tried) detect movement of the flat_hash_map
+  ---------------------------------------------------------------------
+  */
   /// these maps hold the various state objects together with the identifiers
   phmap::parallel_flat_hash_map<size_t, size_t> allocs;
   // we have to use a node hash map here, as we access the nodes from multiple
@@ -89,7 +92,7 @@ TODO:
   Callback clb;
 
   /// switch logging of read/write operations
-  bool log_flag = true;
+  bool log_flag = false;
 
   /// internal statistics
   struct log_counters {
@@ -116,9 +119,8 @@ TODO:
    *                  threads
    */
   void report_race(uint32_t thr1, uint32_t thr2, bool wr1, bool wr2,
-                   const VarState& var, size_t address) const {
-    std::cout << "report_race has been called" << std::endl;
-
+                   const VarState& var, size_t address) const
+  {
     auto it = threads.find(thr1);
     auto it2 = threads.find(thr2);
     auto it_end = threads.end();
@@ -128,7 +130,6 @@ TODO:
                           // traces anymore, return
       return;
     }
-    std::cout << "building the stack" << std::endl;
     std::list<size_t> stack1(
         std::move(it->second->get_stackDepot().return_stack_trace(address)));
     std::list<size_t> stack2(
@@ -140,7 +141,6 @@ TODO:
     while (stack2.size() > Detector::max_stack_size) {
       stack2.pop_front();
     }
-    std::cout << "reached before building access entry" << std::endl;
 
     Detector::AccessEntry access1;
     access1.thread_id = thr1;
@@ -183,56 +183,105 @@ TODO:
     report_race(thr1, thr2, wr1, wr2, var, addr);
   }
 
+  template<typename T>
+  void update_VarState(bool is_write, VectorClock<>::VC_ID id, VarState* v, T shared_vcs_it)
+  {
+    if (is_write)
+    {// we have to do shared_vcs.erase() here
+      if (shared_vcs_it != shared_vcs.end())
+      {
+        shared_vcs.erase(shared_vcs_it);
+      }
+      v->r_id = VarState::VAR_NOT_INIT;
+      v->w_id = id;
+      return;
+    }
+
+    if (shared_vcs_it == shared_vcs.end())
+    {// shared_vc == nullptr
+      v->r_id = id;
+      return;
+    }
+
+    xvector<std::size_t>* shared_vc = &(shared_vcs_it->second);
+    auto it = v->find_in_vec(VectorClock<>::make_tid(id), shared_vc); //find_in_vec is from VarSate
+    if (it != shared_vc->end())
+    {
+      shared_vc->erase(it);
+    }
+    shared_vc->push_back(id);
+  }
+
+  /// sets read state of the address to shared
+  void set_read_shared(VectorClock<>::VC_ID id, VarState* v, std::size_t addr)
+  { // no need for find here. We have to access hashmap shared_vcs => moved to fasttrack
+    xvector<std::size_t> tmp; //this has to be static -> not destroyed immediately after. maybe there will be more than 2
+    tmp.reserve(2);
+    tmp.push_back(v->r_id);
+    tmp.push_back(id);
+    shared_vcs.emplace(addr, std::move(tmp));
+
+    v->r_id = VarState::VAR_NOT_INIT;
+  }
+
   /**
    * \brief takes care of a read access
    * \note works only on calling-thread and var object, not on any list
    */
-  void read(ThreadState* t, VarState* v, size_t addr) {
-    if (t->return_own_id() ==
-        v->get_read_id()) {  // read same epoch, same thread;
-      if (log_flag) {
-        log_count.read_ex_same_epoch++;
-      }
+  void read(ThreadState* t, VarState* v, std::size_t addr)
+  {
+    if (t->return_own_id() == v->get_read_id())
+    {  // read same epoch, same thread;
+      if (log_flag) { log_count.read_ex_same_epoch++;}
       return;
     }
 
     size_t id = t->return_own_id();  // id means epoch
     uint32_t tid = t->get_tid();
 
-    if (v->is_read_shared() &&
-        v->get_vc_by_thr(tid) == id) {  // read shared same epoch
-      if (log_flag) {
-        log_count.read_sh_same_epoch++;
-      }
+    //maybe create a shared_ptr to shared_vc
+    //had to go with normal pointer. figuring out shared_ptr
+    xvector<std::size_t>* shared_vc;
+    auto it = shared_vcs.find(addr);
+    if (it != shared_vcs.end())
+    {//if it exists get a pointer to the vector
+      shared_vc = &(it->second); //vector copy would be too expensive
+    }
+    else
+    {//if I find it is read_shared. else it is not
+      shared_vc = nullptr;
+    }
+
+    if (shared_vc != nullptr && v->get_vc_by_thr(tid, shared_vc) == id)
+    {  // read shared same epoch
+      if (log_flag) { log_count.read_sh_same_epoch++; }
       return;
     }
 
-    if (v->is_wr_race(t)) {  // write-read race
+    if (v->is_wr_race(t))
+    {  // write-read race
       report_race_locked(v->get_w_tid(), tid, true, false, *v, addr);
     }
 
     // update vc
-    if (!v->is_read_shared()) {
+    if (shared_vc == nullptr)
+    { //if it's not read shared
       if (v->get_read_id() == VarState::VAR_NOT_INIT ||
-          (v->get_r_tid() ==
-           tid)) {  // read exclusive => read of same thread but newer epoch
-        v->update(false, id);
-        if (log_flag) {
-          log_count.read_exclusive++;
-        }
-      } else  // => means that (v->get_r_tid() != tid) && or variable hasn't
-              // been read yet
-      {       // read gets shared
-        v->set_read_shared(id);
-        if (log_flag) {
-          log_count.read_share++;
-        }
+          (v->get_r_tid() == tid))
+      {  // read exclusive => read of same thread but newer epoch
+        update_VarState(false, id, v, it);
+        if (log_flag) { log_count.read_exclusive++; }
       }
-    } else {  // read shared
-      v->update(false, id);
-      if (log_flag) {
-        log_count.read_shared++;
+      else  // => means that (v->get_r_tid() != tid) && or variable hasn't been read yet
+      {// read gets shared
+        set_read_shared(id, v, addr);
+        if (log_flag) { log_count.read_share++; }
       }
+    }
+    else
+    {// read shared
+      update_VarState(false, id, v, it);
+      if (log_flag) { log_count.read_shared++; }
     }
   }
 
@@ -241,50 +290,56 @@ TODO:
    * \note works only on calling-thread and var object, not on any list
    */
   void write(ThreadState* t, VarState* v, size_t addr) {
-    if (t->return_own_id() == v->get_write_id()) {  // write same epoch
-      if (log_flag) {
-        log_count.write_same_epoch++;
-      }
-      return;
-    }
-
-    if (v->get_write_id() ==
-        VarState::VAR_NOT_INIT) {  // initial write, update var
-      if (log_flag) {
-        log_count.write_exclusive++;
-      }
-      v->update(true, t->return_own_id());
+    if (t->return_own_id() == v->get_write_id())
+    {// write same epoch
+      if (log_flag) { log_count.write_same_epoch++; }
       return;
     }
 
     uint32_t tid = t->get_tid();
+    xvector<std::size_t>* shared_vc;
+    auto it = shared_vcs.find(addr);
+    if (it != shared_vcs.end())
+    {//if it exists get a pointer to the vector
+      shared_vc = &(it->second); //vector copy would be too expensive
+    }
+    else
+    {//if I find it is read_shared. else it is not
+      shared_vc = nullptr;
+    }
 
-    // tids are different and write epoch greater or equal than known epoch of
-    // other thread
-    if (v->is_ww_race(t))  // write-write race
-    {
+    if (v->get_write_id() == VarState::VAR_NOT_INIT)
+    {// initial write, update var
+      if (log_flag) { log_count.write_exclusive++; }
+      update_VarState(true, t->return_own_id(), v, it);
+      return;
+    }
+
+    // tids are different and write epoch greater or 
+    // equal than known epoch of other thread
+    if (v->is_ww_race(t))  
+    {// write-write race
       report_race_locked(v->get_w_tid(), tid, true, true, *v, addr);
     }
 
-    if (!v->is_read_shared()) {
-      if (log_flag) {
-        log_count.write_exclusive++;
-      }
-      if (v->is_rw_ex_race(t))  // read-write race
-      {
+    if (shared_vc == nullptr)
+    {//!v->is_read_shared()
+      if (log_flag) { log_count.write_exclusive++; }
+      if (v->is_rw_ex_race(t))  
+      {// read-write race
         report_race_locked(v->get_r_tid(), t->get_tid(), false, true, *v, addr);
       }
-    } else {  // come here in read shared case
-      if (log_flag) {
-        log_count.write_shared++;
-      }
-      uint32_t act_tid = v->is_rw_sh_race(t);
+    }
+    else
+    {// come here in read shared case
+      if (log_flag) { log_count.write_shared++; }
+      uint32_t act_tid = v->is_rw_sh_race(t, shared_vc);
       if (act_tid != 0)  // read shared read-write race
       {
         report_race_locked(act_tid, tid, false, true, *v, addr);
       }
     }
-    v->update(true, t->return_own_id());
+    update_VarState(true, t->return_own_id(), v, it);
   }
 
   /**
@@ -338,7 +393,8 @@ TODO:
   }
 
   /// print statistics about rule-hits
-  void process_log_output() const {
+  void process_log_output() const
+  {
     double read_actions, write_actions;
     // percentages
     double rd, wr, r_ex_se, r_sh_se, r_ex, r_share, r_shared, w_se, w_ex, w_sh;
@@ -392,7 +448,8 @@ TODO:
    * is called when a thread finishes (either from \ref join() or from \ref
    * finish()) \note Not Threadsafe
    */
-  void cleanup(uint32_t tid) {
+  void cleanup(uint32_t tid)
+  {
     {
       for (auto it = locks.begin(); it != locks.end(); ++it) {
         it->second.delete_vc(tid);
@@ -426,6 +483,7 @@ TODO:
   bool init(int argc, const char** argv, Callback rc_clb) final {
     parse_args(argc, argv);
     clb = rc_clb;  // init callback
+    vars.reserve(15000);
     return true;
   }
 
@@ -464,8 +522,9 @@ TODO:
   */
   inline std::size_t Fasttrack::hashOf(std::size_t addr) { return (addr >> 4); }
 
-  std::array<ipc::spinlock, 100> spinlocks;
-  void read(tls_t tls, void* pc, void* addr, size_t size) final {
+  std::array<ipc::spinlock, 1000> spinlocks;
+  void read(tls_t tls, void* pc, void* addr, size_t size) final
+  {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
     thr->get_stackDepot().set_read_write((size_t)(addr),
                                          reinterpret_cast<size_t>(pc));
@@ -473,8 +532,8 @@ TODO:
       std::lock_guard<ipc::spinlock> lg(
           spinlocks[hashOf((std::size_t)addr) % spinlocks.size()]);
 
-      VarState var(size);
-      // VarState* var;
+      // VarState var(size);
+      VarState* var;
       {  // finds the VarState instance of a specific addr or creates it
         std::lock_guard<ipc::spinlock> exLockT(vars_spl);
         auto it = vars.find((size_t)(addr));
@@ -485,21 +544,19 @@ TODO:
 #endif
           it = create_var((size_t)(addr), size);
         }
-        var = (it->second);
+        var = &(it->second);  // first copy
       }
 #if PROF_INFO
       // it_lock->second.unlock();
-      size_on_stack += sizeof(var);
-      deb(size_on_stack);
+      // deb(vars.capacity());
+      // deb(vars.size());
+      // std::cout << std::endl;
 #endif
-      read(thr, &var, (size_t)addr);
+      read(thr, var, (size_t)addr);
       // copy back from the stack into the var.
-      auto it = vars.find((size_t)addr);
-      it->second = var;
+      // auto it = vars.find((size_t)addr);
+      // it->second = var;  // second copy
     }
-#if PROF_INFO
-    size_on_stack -= sizeof(VarState);
-#endif
   }
 
   void write(tls_t tls, void* pc, void* addr, size_t size) final {
@@ -509,26 +566,20 @@ TODO:
     {
       std::lock_guard<ipc::spinlock> lg(
           spinlocks[hashOf((std::size_t)addr) % spinlocks.size()]);
-      VarState var(size);
+      // VarState var(size);
+      VarState* var;
       {
         std::lock_guard<ipc::spinlock> exLockT(vars_spl);
         auto it = vars.find((size_t)addr);
         if (it == vars.end()) {
           it = create_var((size_t)(addr), size);
         }
-        var = (it->second);
+        var = &(it->second);
       }
-#if PROF_INFO
-      size_on_stack += sizeof(var);
-      deb(size_on_stack);
-#endif
-      write(thr, &var, (size_t)addr);
-      auto it = vars.find((size_t)addr);
-      it->second = var;
+      write(thr, var, (size_t)addr);
+      // auto it = vars.find((size_t)addr);
+      // it->second = var;
     }
-#if PROF_INFO
-    size_on_stack -= sizeof(VarState);
-#endif
   }
 
   void func_enter(tls_t tls, void* pc) final {

@@ -37,18 +37,20 @@ void add_remove_stacktrace() {
   }
 }
 
+void was_found() {
+
+}
+
 int main() {
-  // std::cout << "vec[4]= " << vec[5] << std::endl;
 
-  // std::cout << "vec.size() = " << vec.size() << std::endl;
+  phmap::node_hash_map<std::size_t, std::size_t> test_map;
 
-  EASY_PROFILER_ENABLE;
+  std::size_t addr = 3;
+  test_map.emplace(addr, 1);
 
-  EASY_MAIN_THREAD;  // Give a name to main thread, same as EASY_THREAD("Main")
+  auto it = test_map.find(addr);
 
-  add_remove_stacktrace();
 
-  profiler::dumpBlocksToFile("fasttrack_test.prof");
 
   std::cout << "Did it work again_v4??" << std::endl;
   int x;
