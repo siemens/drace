@@ -74,7 +74,7 @@ TEST(FasttrackTest, IndicateRaces3) {
       // v1->update(false, t1->return_own_id());
       // v1->set_read_shared(t2->return_own_id());
       //
-  xvector<std::size_t>* shared_vc;
+  xvector<VectorClock<>::VC_ID>* shared_vc;
   auto it = ft->shared_vcs.find(addr);
   if (it != ft->shared_vcs.end()) {  // if it exists get a pointer to the vector
     shared_vc = &(it->second);

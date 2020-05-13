@@ -21,25 +21,13 @@
  * \brief stores information about a memory location
  * \note does not store the address to avoid redundant information
  */
-class VarState {
+class VarState
+{
  public:
-  /// contains the info if an address is a shared_read mode
-  // bool shared_vc{false};
-  // made this shared & switched to vector => needed for the copy constructor
-
-  /// the upper half of the bits are the thread id the lower half is the clock
-  /// of the thread
-  VectorClock<>::VC_ID w_id{VAR_NOT_INIT};  // these are epochs
+  static constexpr uint32_t VAR_NOT_INIT = 0;
+  VectorClock<>::VC_ID w_id { VAR_NOT_INIT };  // these are epochs
   /// local clock of last read
-  VectorClock<>::VC_ID r_id{VAR_NOT_INIT};
-
-  static constexpr int VAR_NOT_INIT = 0;
-
-  /**
-   * \brief spinlock to ensure mutually-excluded access to a single VarState
-   * instance
-   */
-  // ipc::spinlock lock;
+  VectorClock<>::VC_ID r_id { VAR_NOT_INIT }; // now they should be 32 bits 
 
   // TODO: remove the const for copy constructor if we move to flat_hash_map
   const uint16_t size;  // TODO: make size smaller
@@ -63,35 +51,32 @@ class VarState {
   inline VectorClock<>::VC_ID get_read_id() const { return r_id; }
 
   /// return tid of thread which last wrote this var
-  inline VectorClock<>::TID get_w_tid() const {
-    return VectorClock<>::make_tid(w_id);
-  }
+  inline VectorClock<>::TID get_w_tid() const { return VectorClock<>::make_tid(w_id); }
 
   /// return tid of thread which last read this var, if not read shared
-  inline VectorClock<>::TID get_r_tid() const {
-    return VectorClock<>::make_tid(r_id);
-  }
+  inline VectorClock<>::TID get_r_tid() const { return VectorClock<>::make_tid(r_id); }
 
   /// returns clock value of thread of last write access
-  inline VectorClock<>::Clock get_w_clock() const {
-    return VectorClock<>::make_clock(w_id);
-  }
+  inline VectorClock<>::Clock get_w_clock() const { return VectorClock<>::make_clock(w_id); }
 
-  /// returns clock value of thread of last read access (returns 0 when read is
-  /// shared)
-  inline VectorClock<>::Clock get_r_clock() const {
-    return VectorClock<>::make_clock(r_id);
-  }
+  /// returns clock value of thread of last read access (returns 0 when read is shared)
+  inline VectorClock<>::Clock get_r_clock() const { return VectorClock<>::make_clock(r_id); }
+
+  std::vector<VectorClock<>::VC_ID>::iterator find_in_vec(VectorClock<>::TID tid, xvector<VectorClock<>::VC_ID>* shared_vc) const;
+  VectorClock<>::Clock get_clock_by_thr(VectorClock<>::TID tid, xvector<VectorClock<>::VC_ID>* shared_vc) const;
+  VectorClock<>::VC_ID get_vc_by_thr(VectorClock<>::TID tid, xvector<VectorClock<>::VC_ID>* shared_vc) const;
+  VectorClock<>::VC_ID get_sh_id(uint32_t pos, xvector<VectorClock<>::VC_ID>* shared_vc) const;
+  VectorClock<>::TID is_rw_sh_race(ThreadState* t, xvector<VectorClock<>::VC_ID>* shared_vc) const;
 
   /// returns true when read is shared
   // bool is_read_shared() const { return (shared_vc == false) ? false : true; }
 
   /// updates the var state because of an new read or write access through an
   /// thread
-  void update(bool is_write, size_t id);
+  //void update(bool is_write, size_t id);
 
   /// sets read state to shared
-  void set_read_shared(size_t id);
+  //void set_read_shared(size_t id);
 
   /// if in read_shared state, then returns id of position pos in vector clock
   // VectorClock<>::VC_ID get_sh_id(uint32_t pos) const;
@@ -108,16 +93,6 @@ class VarState {
   /// "t"
   // VectorClock<>::TID is_rw_sh_race(ThreadState* t) const;
 
-  std::vector<std::size_t>::iterator find_in_vec(
-      VectorClock<>::TID tid, xvector<std::size_t>* shared_vc) const;
-  VectorClock<>::Clock get_clock_by_thr(VectorClock<>::TID tid,
-                                        xvector<std::size_t>* shared_vc) const;
-  VectorClock<>::VC_ID get_vc_by_thr(VectorClock<>::TID tid,
-                                     xvector<std::size_t>* shared_vc) const;
-  VectorClock<>::VC_ID get_sh_id(uint32_t pos,
-                                 xvector<std::size_t>* shared_vc) const;
-  VectorClock<>::TID is_rw_sh_race(ThreadState* t,
-                                   xvector<std::size_t>* shared_vc) const;
 };
 #endif  // !VARSTATE_H
 

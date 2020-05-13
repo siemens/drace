@@ -62,685 +62,674 @@ class Fasttrack : public Detector {
 #endif
 
 #if PROF_INFO
-public:
+ public:
 #else
-private:
+ private:
 #endif
+  //maps address to the status of read_shared
+  phmap::parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_ID>> shared_vcs;
+  std::array<ipc::spinlock, 1024> spinlocks;
+  inline std::size_t Fasttrack::hashOf(std::size_t addr) { return (addr >> 4); }
 
-// maps address to the status of read_shared
-phmap::parallel_node_hash_map<std::size_t, xvector<std::size_t> > shared_vcs;
-/*
----------------------------------------------------------------------
-What is defined until here is self made
-TODO:
-1. vars => use flat version of the map for memory efficiency and locality
-2. (tried) detect movement of the flat_hash_map
----------------------------------------------------------------------
-*/
-/// these maps hold the various state objects together with the identifiers
-phmap::parallel_flat_hash_map<size_t, size_t> allocs;
-// we have to use a node hash map here, as we access the nodes from multiple
-// threads, while the map might grow in the meantime.
-phmap::parallel_node_hash_map<size_t, VarState> vars;
-// number of locks, threads is expected to be < 1000, hence use one map
-// (without submaps)
-phmap::flat_hash_map<void*, VectorClock<> > locks;
-phmap::flat_hash_map<tid_ft, ts_ptr> threads;
-phmap::parallel_flat_hash_map<void*, VectorClock<> > happens_states;
+  /*
+  ---------------------------------------------------------------------
+  What is defined until here is self made
+  TODO:
+  1. vars => use flat version of the map for memory efficiency and locality
+  2. (tried) detect movement of the flat_hash_map
+  3. pool of spinlocks instead of one per Varstate
+  4. place lock on the addr before any access to vars hash_map
+  before another thread can get a copy of the wrong value
 
-/// holds the callback address to report a race to the drace-main
-Callback clb;
-
-/// switch logging of read/write operations
-bool log_flag = false;
-
-/// internal statistics
-struct log_counters {
-  uint32_t read_ex_same_epoch = 0;
-  uint32_t read_sh_same_epoch = 0;
-  uint32_t read_shared = 0;
-  uint32_t read_exclusive = 0;
-  uint32_t read_share = 0;
-  uint32_t write_same_epoch = 0;
-  uint32_t write_exclusive = 0;
-  uint32_t write_shared = 0;
-} log_count;
-
-/// central lock, used for accesses to global tables except vars (order: 1)
-LockT g_lock;  // global Lock
-
-/// spinlock to protect accesses to vars table (order: 2)
-mutable ipc::spinlock vars_spl;
-
-/**
- * \brief report a data-race back to DRace
- * \note the function itself must not use locks
- * \note Invariant: this function requires a lock the following global tables:
- *                  threads
- */
-void report_race(uint32_t thr1, uint32_t thr2, bool wr1, bool wr2,
-                 const VarState& var, size_t address) const {
-  auto it = threads.find(thr1);
-  auto it2 = threads.find(thr2);
-  auto it_end = threads.end();
-
-  if (it == it_end ||
-      it2 == it_end) {  // if thread_id is, because of finishing, not in stack
-                        // traces anymore, return
-    return;
+  var = &(it->second); gets invalidated if the hash_map moves and we
+  send it further to read/report_race etc
+  if (mem_ref->write) { // => from memory-tracker.cpp
+      detector->write(
+          data.detector_data, reinterpret_cast<void *>(mem_ref->pc),
+          reinterpret_cast<void *>(mem_ref->addr), mem_ref->size);
   }
-  std::list<size_t> stack1(
-      std::move(it->second->get_stackDepot().return_stack_trace(address)));
-  std::list<size_t> stack2(
-      std::move(it2->second->get_stackDepot().return_stack_trace(address)));
+  ---------------------------------------------------------------------
+  */
+  /// these maps hold the various state objects together with the identifiers
+  phmap::parallel_flat_hash_map<size_t, size_t> allocs;
+  // we have to use a node hash map here, as we access the nodes from multiple
+  // threads, while the map might grow in the meantime.
+  phmap::parallel_node_hash_map<size_t, VarState> vars;
+  // number of locks, threads is expected to be < 1000, hence use one map
+  // (without submaps)
+  phmap::flat_hash_map<void*, VectorClock<> > locks;
+  phmap::flat_hash_map<tid_ft, ts_ptr> threads;
+  phmap::parallel_flat_hash_map<void*, VectorClock<> > happens_states;
 
-  while (stack1.size() > Detector::max_stack_size) {
-    stack1.pop_front();
-  }
-  while (stack2.size() > Detector::max_stack_size) {
-    stack2.pop_front();
-  }
+  /// holds the callback address to report a race to the drace-main
+  Callback clb;
 
-  Detector::AccessEntry access1;
-  access1.thread_id = thr1;
-  access1.write = wr1;
-  access1.accessed_memory = address;
-  access1.access_size = var.size;
-  access1.access_type = 0;
-  access1.heap_block_begin = 0;
-  access1.heap_block_size = 0;
-  access1.onheap = false;
-  access1.stack_size = stack1.size();
-  std::copy(stack1.begin(), stack1.end(), access1.stack_trace);
+  /// switch logging of read/write operations
+  bool log_flag = false;
 
-  Detector::AccessEntry access2;
-  access2.thread_id = thr2;
-  access2.write = wr2;
-  access2.accessed_memory = address;
-  access2.access_size = var.size;
-  access2.access_type = 0;
-  access2.heap_block_begin = 0;
-  access2.heap_block_size = 0;
-  access2.onheap = false;
-  access2.stack_size = stack2.size();
-  std::copy(stack2.begin(), stack2.end(), access2.stack_trace);
+  /// internal statistics
+  struct log_counters {
+    uint32_t read_ex_same_epoch = 0;
+    uint32_t read_sh_same_epoch = 0;
+    uint32_t read_shared = 0;
+    uint32_t read_exclusive = 0;
+    uint32_t read_share = 0;
+    uint32_t write_same_epoch = 0;
+    uint32_t write_exclusive = 0;
+    uint32_t write_shared = 0;
+  } log_count;
 
-  Detector::Race race;
-  race.first = access1;
-  race.second = access2;
+  /// central lock, used for accesses to global tables except vars (order: 1)
+  LockT g_lock;  // global Lock
 
-  ((void (*)(const Detector::Race*))clb)(&race);
-}
+  /// spinlock to protect accesses to vars table (order: 2)
+  mutable ipc::spinlock vars_spl;
 
-/**
- * \brief Wrapper for report_race to use const qualifier on wrapped function
- */
-void report_race_locked(uint32_t thr1, uint32_t thr2, bool wr1, bool wr2,
-                        const VarState& var, size_t addr) {
-  std::lock_guard<LockT> lg(g_lock);
-  report_race(thr1, thr2, wr1, wr2, var, addr);
-}
+  /**
+   * \brief report a data-race back to DRace
+   * \note the function itself must not use locks
+   * \note Invariant: this function requires a lock the following global tables:
+   *                  threads
+   */
+  void report_race(uint32_t thr1, uint32_t thr2, bool wr1, bool wr2,
+                   const VarState& var, size_t address) const {
+    auto it = threads.find(thr1);
+    auto it2 = threads.find(thr2);
+    auto it_end = threads.end();
 
-template <typename T>
-void update_VarState(bool is_write, VectorClock<>::VC_ID id, VarState* v,
-                     T shared_vcs_it) {
-  if (is_write) {  // we have to do shared_vcs.erase() here
-    if (shared_vcs_it != shared_vcs.end()) {
-      shared_vcs.erase(shared_vcs_it);
+    if (it == it_end ||
+        it2 == it_end) {  // if thread_id is, because of finishing, not in stack
+                          // traces anymore, return
+      return;
     }
+    std::list<size_t> stack1(
+        std::move(it->second->get_stackDepot().return_stack_trace(address)));
+    std::list<size_t> stack2(
+        std::move(it2->second->get_stackDepot().return_stack_trace(address)));
+
+    while (stack1.size() > Detector::max_stack_size) {
+      stack1.pop_front();
+    }
+    while (stack2.size() > Detector::max_stack_size) {
+      stack2.pop_front();
+    }
+
+    Detector::AccessEntry access1;
+    access1.thread_id = thr1;
+    access1.write = wr1;
+    access1.accessed_memory = address;
+    access1.access_size = var.size;
+    access1.access_type = 0;
+    access1.heap_block_begin = 0;
+    access1.heap_block_size = 0;
+    access1.onheap = false;
+    access1.stack_size = stack1.size();
+    std::copy(stack1.begin(), stack1.end(), access1.stack_trace);
+
+    Detector::AccessEntry access2;
+    access2.thread_id = thr2;
+    access2.write = wr2;
+    access2.accessed_memory = address;
+    access2.access_size = var.size;
+    access2.access_type = 0;
+    access2.heap_block_begin = 0;
+    access2.heap_block_size = 0;
+    access2.onheap = false;
+    access2.stack_size = stack2.size();
+    std::copy(stack2.begin(), stack2.end(), access2.stack_trace);
+
+    Detector::Race race;
+    race.first = access1;
+    race.second = access2;
+
+    ((void (*)(const Detector::Race*))clb)(&race);
+  }
+
+  /**
+   * \brief Wrapper for report_race to use const qualifier on wrapped function
+   */
+  void report_race_locked(uint32_t thr1, uint32_t thr2, bool wr1, bool wr2,
+                          const VarState& var, size_t addr) {
+    std::lock_guard<LockT> lg(g_lock);
+    report_race(thr1, thr2, wr1, wr2, var, addr);
+  }
+
+  template <typename T>
+  void update_VarState(bool is_write, VectorClock<>::VC_ID id, VarState* v,
+                       T shared_vcs_it) {
+    if (is_write) {  // we have to do shared_vcs.erase() here
+      if (shared_vcs_it != shared_vcs.end()) {
+        shared_vcs.erase(shared_vcs_it);
+      }
+      v->r_id = VarState::VAR_NOT_INIT;
+      v->w_id = id;
+      return;
+    }
+
+    if (shared_vcs_it == shared_vcs.end()) {  // shared_vc == nullptr
+      v->r_id = id;
+      return;
+    }
+
+    xvector<std::size_t>* shared_vc = &(shared_vcs_it->second);
+    auto it = v->find_in_vec(VectorClock<>::make_tid(id),
+                             shared_vc);  // find_in_vec is from VarSate
+    if (it != shared_vc->end()) {
+      shared_vc->erase(it);
+    }
+    // here we add more addresses to read_shared => not the error I thought it
+    // was
+    shared_vc->push_back(id);
+  }
+
+  /// sets read state of the address to shared
+  /// sets read state of the address to shared
+  void set_read_shared( VectorClock<>::VC_ID id, VarState* v, std::size_t addr)
+  {
+    xvector<VectorClock<>::VC_ID>* tmp;
+    tmp = &(shared_vcs.emplace(addr, xvector<VectorClock<>::VC_ID>(2))
+                .first->second);
+    tmp->push_back(v->r_id);
+    tmp->push_back(id);
     v->r_id = VarState::VAR_NOT_INIT;
-    v->w_id = id;
-    return;
   }
 
-  if (shared_vcs_it == shared_vcs.end()) {  // shared_vc == nullptr
-    v->r_id = id;
-    return;
-  }
-
-  xvector<std::size_t>* shared_vc = &(shared_vcs_it->second);
-  auto it = v->find_in_vec(VectorClock<>::make_tid(id),
-                           shared_vc);  // find_in_vec is from VarSate
-  if (it != shared_vc->end()) {
-    shared_vc->erase(it);
-  }
-  // here we add more addresses to read_shared => not the error I thought it
-  // was
-  shared_vc->push_back(id);
-}
-
-/// sets read state of the address to shared
-void set_read_shared(
-    VectorClock<>::VC_ID id, VarState* v,
-    std::size_t addr) {  // no need for find here. We have to access hashmap
-                         // shared_vcs => moved to fasttrack
-  xvector<std::size_t>
-      tmp;  // this has to be static -> not destroyed immediately after. maybe
-            // there will be more than 2
-  tmp.reserve(2);
-  tmp.push_back(v->r_id);
-  tmp.push_back(id);
-  shared_vcs.emplace(addr, std::move(tmp));
-
-  v->r_id = VarState::VAR_NOT_INIT;
-}
-
-/**
- * \brief takes care of a read access
- * \note works only on calling-thread and var object, not on any list
- */
-void read(ThreadState* t, VarState* v, std::size_t addr) {
-  if (t->return_own_id() ==
-      v->get_read_id()) {  // read same epoch, same thread;
-    if (log_flag) {
-      log_count.read_ex_same_epoch++;
+  /**
+   * \brief takes care of a read access
+   * \note works only on calling-thread and var object, not on any list
+   */
+  void read(ThreadState* t, VarState* v, std::size_t addr)
+  {
+    if (t->return_own_id() == v->get_read_id())
+    {// read same epoch, same thread;
+      if (log_flag) { log_count.read_ex_same_epoch++; }
+      return;
     }
-    return;
-  }
 
-  size_t id = t->return_own_id();  // id means epoch
-  uint32_t tid = t->get_tid();
+    size_t id = t->return_own_id();  // id means epoch
+    uint32_t tid = t->get_tid();
 
-  // maybe create a shared_ptr to shared_vc
-  // had to go with normal pointer. figuring out shared_ptr
-  xvector<std::size_t>* shared_vc;
-  auto it = shared_vcs.find(addr);
-  if (it != shared_vcs.end()) {  // if it exists get a pointer to the vector
-    shared_vc = &(it->second);   // vector copy would be too expensive
-  } else {                       // if I find it is read_shared. else it is not
-    shared_vc = nullptr;
-  }
-
-  if (shared_vc != nullptr &&
-      v->get_vc_by_thr(tid, shared_vc) == id) {  // read shared same epoch
-    if (log_flag) {
-      log_count.read_sh_same_epoch++;
+    // had to go with normal pointer. figuring out shared_ptr
+    xvector<std::size_t>* shared_vc;
+    auto it = shared_vcs.find(addr);
+    if (it != shared_vcs.end()) {  // if it exists get a pointer to the vector
+      shared_vc = &(it->second);   // vector copy would be too expensive
+    } else {  // if I find it is read_shared. else it is not
+      shared_vc = nullptr;
     }
-    return;
-  }
 
-  if (v->is_wr_race(t)) {  // write-read race
-    report_race_locked(v->get_w_tid(), tid, true, false, *v, addr);
-  }
+    if (shared_vc != nullptr &&
+        v->get_vc_by_thr(tid, shared_vc) == id) {  // read shared same epoch
+      if (log_flag) {
+        log_count.read_sh_same_epoch++;
+      }
+      return;
+    }
 
-  // update vc
-  if (shared_vc == nullptr) {  // if it's not read shared
-    if (v->get_read_id() == VarState::VAR_NOT_INIT ||
-        (v->get_r_tid() ==
-         tid)) {  // read exclusive => read of same thread but newer epoch
+    if (v->is_wr_race(t)) {  // write-read race
+      report_race_locked(v->get_w_tid(), tid, true, false, *v, addr);
+    }
+
+    // update vc
+    if (shared_vc == nullptr) {  // if it's not read shared
+      if (v->get_read_id() == VarState::VAR_NOT_INIT ||
+          (v->get_r_tid() ==
+           tid)) {  // read exclusive => read of same thread but newer epoch
+        update_VarState(false, id, v, it);
+        if (log_flag) {
+          log_count.read_exclusive++;
+        }
+      } else  // => means that (v->get_r_tid() != tid) && or variable hasn't
+              // been read yet
+      {       // read gets shared
+        set_read_shared(id, v, addr);
+        if (log_flag) {
+          log_count.read_share++;
+        }
+      }
+    } else {  // read shared
       update_VarState(false, id, v, it);
       if (log_flag) {
-        log_count.read_exclusive++;
+        log_count.read_shared++;
       }
-    } else  // => means that (v->get_r_tid() != tid) && or variable hasn't
-            // been read yet
-    {       // read gets shared
-      set_read_shared(id, v, addr);
+    }
+  }
+
+  /**
+   * \brief takes care of a write access
+   * \note works only on calling-thread and var object, not on any list
+   */
+  void write(ThreadState* t, VarState* v, size_t addr) {
+    if (t->return_own_id() == v->get_write_id()) {  // write same epoch
       if (log_flag) {
-        log_count.read_share++;
+        log_count.write_same_epoch++;
       }
+      return;
     }
-  } else {  // read shared
-    update_VarState(false, id, v, it);
-    if (log_flag) {
-      log_count.read_shared++;
+
+    uint32_t tid = t->get_tid();
+    xvector<std::size_t>* shared_vc;
+    auto it = shared_vcs.find(addr);
+    if (it != shared_vcs.end()) {  // if it exists get a pointer to the vector
+      shared_vc = &(it->second);   // vector copy would be too expensive
+    } else {  // if I find it is read_shared. else it is not
+      shared_vc = nullptr;
     }
-  }
-}
 
-/**
- * \brief takes care of a write access
- * \note works only on calling-thread and var object, not on any list
- */
-void write(ThreadState* t, VarState* v, size_t addr) {
-  if (t->return_own_id() == v->get_write_id()) {  // write same epoch
-    if (log_flag) {
-      log_count.write_same_epoch++;
+    if (v->get_write_id() ==
+        VarState::VAR_NOT_INIT) {  // initial write, update var
+      if (log_flag) {
+        log_count.write_exclusive++;
+      }
+      update_VarState(true, t->return_own_id(), v, it);
+      return;
     }
-    return;
-  }
 
-  uint32_t tid = t->get_tid();
-  xvector<std::size_t>* shared_vc;
-  auto it = shared_vcs.find(addr);
-  if (it != shared_vcs.end()) {  // if it exists get a pointer to the vector
-    shared_vc = &(it->second);   // vector copy would be too expensive
-  } else {                       // if I find it is read_shared. else it is not
-    shared_vc = nullptr;
-  }
+    // tids are different and write epoch greater or
+    // equal than known epoch of other thread
+    if (v->is_ww_race(t)) {  // write-write race
+      report_race_locked(v->get_w_tid(), tid, true, true, *v, addr);
+    }
 
-  if (v->get_write_id() ==
-      VarState::VAR_NOT_INIT) {  // initial write, update var
-    if (log_flag) {
-      log_count.write_exclusive++;
+    if (shared_vc == nullptr) {  //! v->is_read_shared()
+      if (log_flag) {
+        log_count.write_exclusive++;
+      }
+      if (v->is_rw_ex_race(t)) {  // read-write race
+        report_race_locked(v->get_r_tid(), t->get_tid(), false, true, *v, addr);
+      }
+    } else {  // come here in read shared case
+      if (log_flag) {
+        log_count.write_shared++;
+      }
+      uint32_t act_tid = v->is_rw_sh_race(t, shared_vc);
+      if (act_tid != 0)  // read shared read-write race
+      {
+        report_race_locked(act_tid, tid, false, true, *v, addr);
+      }
     }
     update_VarState(true, t->return_own_id(), v, it);
-    return;
   }
 
-  // tids are different and write epoch greater or
-  // equal than known epoch of other thread
-  if (v->is_ww_race(t)) {  // write-write race
-    report_race_locked(v->get_w_tid(), tid, true, true, *v, addr);
+  /**
+   * \brief creates a new variable object (is called, when var is read or
+   * written for the first time) \note Invariant: vars table is locked
+   */
+  inline auto create_var(size_t addr, size_t size) {
+    return vars.emplace(addr, static_cast<uint16_t>(size)).first;
+    // return vars.emplace(std::piecewise_construct,
+    // std::forward_as_tuple(addr),
+    //  std::forward_as_tuple(size))
+    //  .first;
   }
 
-  if (shared_vc == nullptr) {  //! v->is_read_shared()
-    if (log_flag) {
-      log_count.write_exclusive++;
-    }
-    if (v->is_rw_ex_race(t)) {  // read-write race
-      report_race_locked(v->get_r_tid(), t->get_tid(), false, true, *v, addr);
-    }
-  } else {  // come here in read shared case
-    if (log_flag) {
-      log_count.write_shared++;
-    }
-    uint32_t act_tid = v->is_rw_sh_race(t, shared_vc);
-    if (act_tid != 0)  // read shared read-write race
-    {
-      report_race_locked(act_tid, tid, false, true, *v, addr);
-    }
-  }
-  update_VarState(true, t->return_own_id(), v, it);
-}
-
-/**
- * \brief creates a new variable object (is called, when var is read or
- * written for the first time) \note Invariant: vars table is locked
- */
-inline auto create_var(size_t addr, size_t size) {
-  return vars.emplace(addr, static_cast<uint16_t>(size)).first;
-  // return vars.emplace(std::piecewise_construct,
-  // std::forward_as_tuple(addr),
-  //  std::forward_as_tuple(size))
-  //  .first;
-}
-
-/// creates a new lock object (is called when a lock is acquired or released
-/// for the first time)
-inline auto createLock(void* mutex) {
-  return locks
-      .emplace(std::piecewise_construct, std::forward_as_tuple(mutex),
-               std::forward_as_tuple())
-      .first;
-}
-
-/// creates a new thread object (is called when fork() called)
-ThreadState* create_thread(VectorClock<>::TID tid, ts_ptr parent = nullptr) {
-  ts_ptr new_thread;
-
-  if (nullptr == parent) {
-    new_thread =
-        threads.emplace(tid, std::make_shared<ThreadState>(tid)).first->second;
-  } else {
-    new_thread =
-        threads.emplace(tid, std::make_shared<ThreadState>(tid, parent))
-            .first->second;
+  /// creates a new lock object (is called when a lock is acquired or released
+  /// for the first time)
+  inline auto createLock(void* mutex) {
+    return locks
+        .emplace(std::piecewise_construct, std::forward_as_tuple(mutex),
+                 std::forward_as_tuple())
+        .first;
   }
 
-  return new_thread.get();
-}
+  /// creates a new thread object (is called when fork() called)
+  ThreadState* create_thread(VectorClock<>::TID tid, ts_ptr parent = nullptr) {
+    ts_ptr new_thread;
 
-/// creates a happens_before object
-inline auto create_happens(void* identifier) {
-  return happens_states
-      .emplace(std::piecewise_construct, std::forward_as_tuple(identifier),
-               std::forward_as_tuple())
-      .first;
-}
-
-/// creates an allocation object
-inline void create_alloc(size_t addr, size_t size) {
-  allocs.emplace(addr, size);
-}
-
-/// print statistics about rule-hits
-void process_log_output() const {
-  double read_actions, write_actions;
-  // percentages
-  double rd, wr, r_ex_se, r_sh_se, r_ex, r_share, r_shared, w_se, w_ex, w_sh;
-
-  read_actions = log_count.read_ex_same_epoch + log_count.read_sh_same_epoch +
-                 log_count.read_exclusive + log_count.read_share +
-                 log_count.read_shared;
-  write_actions = log_count.write_same_epoch + log_count.write_exclusive +
-                  log_count.write_shared;
-
-  rd = (read_actions / (read_actions + write_actions)) * 100;
-  wr = 100 - rd;
-  r_ex_se = (log_count.read_ex_same_epoch / read_actions) * 100;
-  r_sh_se = (log_count.read_sh_same_epoch / read_actions) * 100;
-  r_ex = (log_count.read_exclusive / read_actions) * 100;
-  r_share = (log_count.read_share / read_actions) * 100;
-  r_shared = (log_count.read_shared / read_actions) * 100;
-  w_se = (log_count.write_same_epoch / write_actions) * 100;
-  w_ex = (log_count.write_exclusive / write_actions) * 100;
-  w_sh = (log_count.write_shared / write_actions) * 100;
-
-  std::cout << "FASTTRACK_STATISTICS: All values are percentages!" << std::endl;
-  std::cout << std::fixed << std::setprecision(2) << "Read Actions: " << rd
-            << std::endl;
-  std::cout << "Of which: " << std::endl;
-  std::cout << std::fixed << std::setprecision(2)
-            << "Read exclusive same epoch: " << r_ex_se << std::endl;
-  std::cout << std::fixed << std::setprecision(2)
-            << "Read shared same epoch: " << r_sh_se << std::endl;
-  std::cout << std::fixed << std::setprecision(2) << "Read exclusive: " << r_ex
-            << std::endl;
-  std::cout << std::fixed << std::setprecision(2) << "Read share: " << r_share
-            << std::endl;
-  std::cout << std::fixed << std::setprecision(2) << "Read shared: " << r_shared
-            << std::endl;
-  std::cout << std::endl;
-  std::cout << std::fixed << std::setprecision(2) << "Write Actions: " << wr
-            << std::endl;
-  std::cout << "Of which: " << std::endl;
-  std::cout << std::fixed << std::setprecision(2)
-            << "Write same epoch: " << w_se << std::endl;
-  std::cout << std::fixed << std::setprecision(2) << "Write exclusive: " << w_ex
-            << std::endl;
-  std::cout << std::fixed << std::setprecision(2) << "Write shared: " << w_sh
-            << std::endl;
-}
-
-/**
- * \brief deletes all data which is related to the tid
- * is called when a thread finishes (either from \ref join() or from \ref
- * finish()) \note Not Threadsafe
- */
-void cleanup(uint32_t tid) {
-  {
-    for (auto it = locks.begin(); it != locks.end(); ++it) {
-      it->second.delete_vc(tid);
-    }
-
-    for (auto it = threads.begin(); it != threads.end(); ++it) {
-      it->second->delete_vc(tid);
-    }
-
-    for (auto it = happens_states.begin(); it != happens_states.end(); ++it) {
-      it->second.delete_vc(tid);
-    }
-  }
-}
-
-void parse_args(int argc, const char** argv) {
-  int processed = 1;
-  while (processed < argc) {
-    if (strcmp(argv[processed], "--stats") == 0) {
-      log_flag = true;
-      return;
+    if (nullptr == parent) {
+      new_thread = threads.emplace(tid, std::make_shared<ThreadState>(tid))
+                       .first->second;
     } else {
-      ++processed;
+      new_thread =
+          threads.emplace(tid, std::make_shared<ThreadState>(tid, parent))
+              .first->second;
     }
-  }
-}
 
-public:
-explicit Fasttrack() = default;
-
-bool init(int argc, const char** argv, Callback rc_clb) final {
-  parse_args(argc, argv);
-  clb = rc_clb;  // init callback
-  // vars.reserve(15000);
-  return true;
-}
-
-void finalize() final {
-  std::lock_guard<LockT> lg1(g_lock);
-  {
-    std::lock_guard<ipc::spinlock> lg2(vars_spl);
-    vars.clear();
-  }
-  locks.clear();
-  happens_states.clear();
-  allocs.clear();
-  threads.clear();
-
-  if (log_flag) {
-    process_log_output();
-  }
-}
-/*
----------------------------------------------------------------------
-TODO:
-1. put VarState on the stack & switch to using a flat_hash_map
-2. pool of spinlocks instead of one per Varstate
-3. place lock on the addr before any access to vars hash_map
-before another thread can get a copy of the wrong value
-
-var = &(it->second); gets invalidated if the hash_map moves and we
-send it further to read/report_race etc
-
-if (mem_ref->write) { // => from memory-tracker.cpp
-    detector->write(
-        data.detector_data, reinterpret_cast<void *>(mem_ref->pc),
-        reinterpret_cast<void *>(mem_ref->addr), mem_ref->size);
-}
----------------------------------------------------------------------
-*/
-inline std::size_t Fasttrack::hashOf(std::size_t addr) { return (addr >> 4); }
-
-std::array<ipc::spinlock, 1024> spinlocks;
-void read(tls_t tls, void* pc, void* addr, size_t size) final {
-  ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-  thr->get_stackDepot().set_read_write((size_t)(addr),
-                                       reinterpret_cast<size_t>(pc));
-  {
-    std::lock_guard<ipc::spinlock> lg(
-        spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
-    //&0x3E8ull
-
-    // VarState var(size);
-    VarState* var;
-    {  // finds the VarState instance of a specific addr or creates it
-      std::lock_guard<ipc::spinlock> exLockT(vars_spl);
-      auto it = vars.find((size_t)(addr));
-      if (it == vars.end()) {
-#if MAKE_OUTPUT
-        std::cout << "variable is read before written" << std::endl;  // warning
-#endif
-        it = create_var((size_t)(addr), size);
-      }
-      var = &(it->second);  // first copy
-    }
-#if PROF_INFO
-    // it_lock->second.unlock();
-    // deb(vars.capacity());
-    // deb(sizeof(VectorClock<>));
-    // std::cout << std::endl;
-#endif
-    read(thr, var, (size_t)addr);
-  }
-}
-
-void write(tls_t tls, void* pc, void* addr, size_t size) final {
-  ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-  thr->get_stackDepot().set_read_write((size_t)addr,
-                                       reinterpret_cast<size_t>(pc));
-  {
-    std::lock_guard<ipc::spinlock> lg(
-        spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
-    VarState* var;
-    {
-      std::lock_guard<ipc::spinlock> exLockT(vars_spl);
-      auto it = vars.find((size_t)addr);
-      if (it == vars.end()) {
-        it = create_var((size_t)(addr), size);
-      }
-      var = &(it->second);
-    }
-    write(thr, var, (size_t)addr);
-  }
-}
-
-void func_enter(tls_t tls, void* pc) final {
-  ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-  thr->get_stackDepot().push_stack_element(reinterpret_cast<size_t>(pc));
-}
-
-void func_exit(tls_t tls) final {
-  ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-  thr->get_stackDepot().pop_stack_element();
-}
-
-void fork(tid_t parent, tid_t child, tls_t* tls) final {
-  ThreadState* thr;
-
-  std::lock_guard<LockT> exLockT(g_lock);
-  auto thrit = threads.find(parent);
-  if (thrit != threads.end()) {
-    {
-      thrit->second->inc_vc();  // inc vector clock for creation of new thread
-    }
-    thr = create_thread(child, threads[parent]);
-  } else {
-    thr = create_thread(child);
-  }
-  *tls = reinterpret_cast<tls_t>(thr);
-}
-
-void join(tid_t parent, tid_t child) final {
-  std::lock_guard<LockT> exLockT(g_lock);
-  ts_ptr del_thread = threads[child];
-  del_thread->inc_vc();
-  // pass incremented clock of deleted thread to parent
-  threads[parent]->update(
-      *del_thread);  // TODO: increment straight here the clock. don't waste
-                     // time to increment that clock
-  threads.erase(child);
-  cleanup(child);
-}
-
-// sync thread vc to lock vc
-void acquire(tls_t tls, void* mutex, int recursive, bool write) final {
-  if (recursive >
-      1) {   // lock haven't been updated by another thread (by definition)
-    return;  // therefore no action needed here as only the invoking thread
-             // may have updated the lock
+    return new_thread.get();
   }
 
-  std::lock_guard<LockT> exLockT(g_lock);
-  auto it = locks.find(mutex);
-  if (it == locks.end()) {
-    it = createLock(mutex);
+  /// creates a happens_before object
+  inline auto create_happens(void* identifier) {
+    return happens_states
+        .emplace(std::piecewise_construct, std::forward_as_tuple(identifier),
+                 std::forward_as_tuple())
+        .first;
   }
-  ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-  (thr)->update(it->second);
-}
 
-void release(tls_t tls, void* mutex, bool write) final {
-  std::lock_guard<LockT> exLockT(g_lock);
-  auto it = locks.find(mutex);
-  if (it == locks.end()) {
-#if MAKE_OUTPUT
-    std::cerr << "lock is released but was never acquired by any thread"
+  /// creates an allocation object
+  inline void create_alloc(size_t addr, size_t size) {
+    allocs.emplace(addr, size);
+  }
+
+  /// print statistics about rule-hits
+  void process_log_output() const {
+    double read_actions, write_actions;
+    // percentages
+    double rd, wr, r_ex_se, r_sh_se, r_ex, r_share, r_shared, w_se, w_ex, w_sh;
+
+    read_actions = log_count.read_ex_same_epoch + log_count.read_sh_same_epoch +
+                   log_count.read_exclusive + log_count.read_share +
+                   log_count.read_shared;
+    write_actions = log_count.write_same_epoch + log_count.write_exclusive +
+                    log_count.write_shared;
+
+    rd = (read_actions / (read_actions + write_actions)) * 100;
+    wr = 100 - rd;
+    r_ex_se = (log_count.read_ex_same_epoch / read_actions) * 100;
+    r_sh_se = (log_count.read_sh_same_epoch / read_actions) * 100;
+    r_ex = (log_count.read_exclusive / read_actions) * 100;
+    r_share = (log_count.read_share / read_actions) * 100;
+    r_shared = (log_count.read_shared / read_actions) * 100;
+    w_se = (log_count.write_same_epoch / write_actions) * 100;
+    w_ex = (log_count.write_exclusive / write_actions) * 100;
+    w_sh = (log_count.write_shared / write_actions) * 100;
+
+    std::cout << "FASTTRACK_STATISTICS: All values are percentages!"
               << std::endl;
-#endif
-    createLock(mutex);
-    return;  // as lock is empty (was never acquired), we can return here
+    std::cout << std::fixed << std::setprecision(2) << "Read Actions: " << rd
+              << std::endl;
+    std::cout << "Of which: " << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+              << "Read exclusive same epoch: " << r_ex_se << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+              << "Read shared same epoch: " << r_sh_se << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+              << "Read exclusive: " << r_ex << std::endl;
+    std::cout << std::fixed << std::setprecision(2) << "Read share: " << r_share
+              << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+              << "Read shared: " << r_shared << std::endl;
+    std::cout << std::endl;
+    std::cout << std::fixed << std::setprecision(2) << "Write Actions: " << wr
+              << std::endl;
+    std::cout << "Of which: " << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+              << "Write same epoch: " << w_se << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+              << "Write exclusive: " << w_ex << std::endl;
+    std::cout << std::fixed << std::setprecision(2) << "Write shared: " << w_sh
+              << std::endl;
   }
 
-  ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-  thr->inc_vc();
+  /**
+   * \brief deletes all data which is related to the tid
+   * is called when a thread finishes (either from \ref join() or from \ref
+   * finish()) \note Not Threadsafe
+   */
+  void cleanup(uint32_t tid) {
+    {
+      for (auto it = locks.begin(); it != locks.end(); ++it) {
+        it->second.delete_vc(tid);
+      }
 
-  // increase vector clock and propagate to lock
-  it->second.update(thr);
-}
+      for (auto it = threads.begin(); it != threads.end(); ++it) {
+        it->second->delete_vc(tid);
+      }
 
-// identifier = TID of another thread, which happens before our thread
-void happens_before(tls_t tls, void* identifier) final {
-  std::lock_guard<LockT> exLockT(g_lock);
-  auto it = happens_states.find(identifier);
-  if (it == happens_states.end()) {
-    it = create_happens(identifier);
+      for (auto it = happens_states.begin(); it != happens_states.end(); ++it) {
+        it->second.delete_vc(tid);
+      }
+    }
   }
 
-  ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+  void parse_args(int argc, const char** argv) {
+    int processed = 1;
+    while (processed < argc) {
+      if (strcmp(argv[processed], "--stats") == 0) {
+        log_flag = true;
+        return;
+      } else {
+        ++processed;
+      }
+    }
+  }
 
-  thr->inc_vc();  // increment clock of thread and update happens state
-  it->second.update(thr->get_tid(), thr->return_own_id());
-}
+ public:
+  explicit Fasttrack() = default;
 
-void happens_after(tls_t tls, void* identifier) final {
+  bool init(int argc, const char** argv, Callback rc_clb) final {
+    parse_args(argc, argv);
+    clb = rc_clb;  // init callback
+    // vars.reserve(15000);
+    return true;
+  }
+
+  void finalize() final {
+    std::lock_guard<LockT> lg1(g_lock);
+    {
+      std::lock_guard<ipc::spinlock> lg2(vars_spl);
+      vars.clear();
+    }
+    locks.clear();
+    happens_states.clear();
+    allocs.clear();
+    threads.clear();
+
+    if (log_flag) {
+      process_log_output();
+    }
+  }
+
+  void read(tls_t tls, void* pc, void* addr, size_t size) final
   {
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->get_stackDepot().set_read_write((size_t)(addr),
+                                         reinterpret_cast<size_t>(pc));
+    {
+      std::lock_guard<ipc::spinlock> lg(
+          spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
+      //&0x3E8ull
+
+      // VarState var(size);
+      VarState* var;
+      {  // finds the VarState instance of a specific addr or creates it
+        std::lock_guard<ipc::spinlock> exLockT(vars_spl);
+        auto it = vars.find((size_t)(addr));
+        if (it == vars.end()) {
+#if MAKE_OUTPUT
+          std::cout << "variable is read before written"
+                    << std::endl;  // warning
+#endif
+          it = create_var((size_t)(addr), size);
+        }
+        var = &(it->second);  // first copy
+      }
+#if PROF_INFO
+      // it_lock->second.unlock();
+      // deb(vars.capacity());
+      // deb(sizeof(VectorClock<>));
+      // std::cout << std::endl;
+#endif
+      read(thr, var, (size_t)addr);
+    }
+  }
+
+  void write(tls_t tls, void* pc, void* addr, size_t size) final {
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->get_stackDepot().set_read_write((size_t)addr,
+                                         reinterpret_cast<size_t>(pc));
+    {
+      std::lock_guard<ipc::spinlock> lg(
+          spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
+      VarState* var;
+      {
+        std::lock_guard<ipc::spinlock> exLockT(vars_spl);
+        auto it = vars.find((size_t)addr);
+        if (it == vars.end()) {
+          it = create_var((size_t)(addr), size);
+        }
+        var = &(it->second);
+      }
+      write(thr, var, (size_t)addr);
+    }
+  }
+
+  void func_enter(tls_t tls, void* pc) final {
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->get_stackDepot().push_stack_element(reinterpret_cast<size_t>(pc));
+  }
+
+  void func_exit(tls_t tls) final {
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->get_stackDepot().pop_stack_element();
+  }
+
+  void fork(tid_t parent, tid_t child, tls_t* tls) final {
+    ThreadState* thr;
+
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto thrit = threads.find(parent);
+    if (thrit != threads.end()) {
+      {
+        thrit->second->inc_vc();  // inc vector clock for creation of new thread
+      }
+      thr = create_thread(child, threads[parent]);
+    } else {
+      thr = create_thread(child);
+    }
+    *tls = reinterpret_cast<tls_t>(thr);
+  }
+
+  void join(tid_t parent, tid_t child) final {
+    std::lock_guard<LockT> exLockT(g_lock);
+    ts_ptr del_thread = threads[child];
+    del_thread->inc_vc();
+    // pass incremented clock of deleted thread to parent
+    threads[parent]->update(
+        *del_thread);  // TODO: increment straight here the clock. don't waste
+                       // time to increment that clock
+    threads.erase(child);
+    cleanup(child);
+  }
+
+  // sync thread vc to lock vc
+  void acquire(tls_t tls, void* mutex, int recursive, bool write) final {
+    if (recursive >
+        1) {   // lock haven't been updated by another thread (by definition)
+      return;  // therefore no action needed here as only the invoking thread
+               // may have updated the lock
+    }
+
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto it = locks.find(mutex);
+    if (it == locks.end()) {
+      it = createLock(mutex);
+    }
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    (thr)->update(it->second);
+  }
+
+  void release(tls_t tls, void* mutex, bool write) final {
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto it = locks.find(mutex);
+    if (it == locks.end()) {
+#if MAKE_OUTPUT
+      std::cerr << "lock is released but was never acquired by any thread"
+                << std::endl;
+#endif
+      createLock(mutex);
+      return;  // as lock is empty (was never acquired), we can return here
+    }
+
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->inc_vc();
+
+    // increase vector clock and propagate to lock
+    it->second.update(thr);
+  }
+
+  // identifier = TID of another thread, which happens before our thread
+  void happens_before(tls_t tls, void* identifier) final {
     std::lock_guard<LockT> exLockT(g_lock);
     auto it = happens_states.find(identifier);
     if (it == happens_states.end()) {
-      create_happens(identifier);
-      return;  // create -> no happens_before can be synced
-    } else {
-      ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-      // update vector clock of thread with happened before clocks
-      thr->update(it->second);
+      it = create_happens(identifier);
+    }
+
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+
+    thr->inc_vc();  // increment clock of thread and update happens state
+    it->second.update(thr->get_tid(), thr->return_own_id());
+  }
+
+  void happens_after(tls_t tls, void* identifier) final {
+    {
+      std::lock_guard<LockT> exLockT(g_lock);
+      auto it = happens_states.find(identifier);
+      if (it == happens_states.end()) {
+        create_happens(identifier);
+        return;  // create -> no happens_before can be synced
+      } else {
+        ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+        // update vector clock of thread with happened before clocks
+        thr->update(it->second);
+      }
     }
   }
-}
 
-void allocate(tls_t tls, void* pc, void* addr, size_t size) final {
+  void allocate(tls_t tls, void* pc, void* addr, size_t size) final {
 #if REGARD_ALLOCS
-  size_t address = reinterpret_cast<size_t>(addr);
-  std::lock_guard<LockT> exLockT(g_lock);
-  if (allocs.find(address) == allocs.end()) {
-    create_alloc(address, size);
-  }
-#endif
-}
-
-// when we deallocate a variable we erase it from the VarState
-void deallocate(tls_t tls, void* addr) final {
-#if REGARD_ALLOCS
-  size_t address = reinterpret_cast<size_t>(addr);
-  size_t end_addr;
-
-  std::lock_guard<LockT> exLockT(g_lock);
-  end_addr = address + allocs[address];  // allocs[address] = size;
-
-  // variable is deallocated so varstate objects can be destroyed
-  while (address < end_addr) {  // we go and deallocate each address
-    /*
-    Let's say we have a big vector that gets allocated. we track the
-    allocation, but we don't create the Var state objects for the adresses. We
-    create them 1 by 1 on each access. But when we deallocate we clear all of
-    them.
-    */
-    std::lock_guard<ipc::spinlock> lg(vars_spl);
-    if (vars.find(address) != vars.end()) {
-      auto& var = vars.find(address)->second;
-      vars.erase(address);
-      address++;
-    } else {
-      address++;
+    size_t address = reinterpret_cast<size_t>(addr);
+    std::lock_guard<LockT> exLockT(g_lock);
+    if (allocs.find(address) == allocs.end()) {
+      create_alloc(address, size);
     }
-  }
-  allocs.erase(address);
 #endif
-}
+  }
 
-void detach(tls_t tls, tid_t thread_id) final {
-  /// \todo This is currently not supported
-  return;
-}
+  // when we deallocate a variable we erase it from the VarState
+  void deallocate(tls_t tls, void* addr) final {
+#if REGARD_ALLOCS
+    size_t address = reinterpret_cast<size_t>(addr);
+    size_t end_addr;
 
-void finish(tls_t tls, tid_t thread_id) final {
-  std::lock_guard<LockT> exLockT(g_lock);
-  /// just delete thread from list, no backward sync needed
-  threads.erase(thread_id);
-  cleanup(thread_id);
-}
+    std::lock_guard<LockT> exLockT(g_lock);
+    end_addr = address + allocs[address];  // allocs[address] = size;
 
-/**
- * \note allocation of shadow memory is not required in this
- *       detector. If a standalone version of Fasttrack is used
- *       this function can be ignored
- */
-void map_shadow(void* startaddr, size_t size_in_bytes) final { return; }
+    // variable is deallocated so varstate objects can be destroyed
+    while (address < end_addr) {  // we go and deallocate each address
+      /*
+      Let's say we have a big vector that gets allocated. we track the
+      allocation, but we don't create the Var state objects for the adresses. We
+      create them 1 by 1 on each access. But when we deallocate we clear all of
+      them.
+      */
+      std::lock_guard<ipc::spinlock> lg(vars_spl);
+      if (vars.find(address) != vars.end()) {
+        auto& var = vars.find(address)->second;
+        vars.erase(address);
+        address++;
+      } else {
+        address++;
+      }
+    }
+    allocs.erase(address);
+#endif
+  }
 
-const char* name() final { return "FASTTRACK"; }
+  void detach(tls_t tls, tid_t thread_id) final {
+    /// \todo This is currently not supported
+    return;
+  }
 
-const char* version() final { return "0.0.1"; }
-}
-;
+  void finish(tls_t tls, tid_t thread_id) final {
+    std::lock_guard<LockT> exLockT(g_lock);
+    /// just delete thread from list, no backward sync needed
+    threads.erase(thread_id);
+    cleanup(thread_id);
+  }
+
+  /**
+   * \note allocation of shadow memory is not required in this
+   *       detector. If a standalone version of Fasttrack is used
+   *       this function can be ignored
+   */
+  void map_shadow(void* startaddr, size_t size_in_bytes) final { return; }
+
+  const char* name() final { return "FASTTRACK"; }
+
+  const char* version() final { return "0.0.1"; }
+};
 }  // namespace detector
 }  // namespace drace
 

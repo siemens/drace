@@ -33,12 +33,3 @@ void ProfTimer::Stop() {
 
   std::cout << time << "us (" << time_ms << "ms);" << std::endl;
 }
-
-class FastTrackProf {
- public:
-  FastTrackProf();
-  ~FastTrackProf();
-
- private:
-  // Fasttrack* m_fasttrack;
-};

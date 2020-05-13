@@ -1,5 +1,3 @@
-
-
 set(PROF_SOURCES "src/prof.cpp")
 
 add_executable("profiling" ${PROF_SOURCES})
@@ -9,9 +7,9 @@ target_include_directories("profiling"
                 PUBLIC "include"
                 PUBLIC "${Boost_INCLUDE_DIR}")
 
-find_package(easy_profiler REQUIRED)
+#find_package(easy_profiler REQUIRED)
                    
-target_link_libraries("profiling" easy_profiler
+target_link_libraries("profiling"
 "drace-common" "parallel-hashmap" "drace.detector.fasttrack.generic")
 
 set_target_properties(

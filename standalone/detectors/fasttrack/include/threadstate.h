@@ -19,18 +19,19 @@
 
 /// implements a threadstate, holds the thread's vectorclock and the thread's id
 /// (tid and act clock)
-class ThreadState : public VectorClock<> { //TODO: why do we inherit from VectorClock ?
+class ThreadState : public VectorClock<>
+{
  private:
-  /// holds the tid and the actual clock value -> lower 32 bits are clock, upper
-  /// 32 are the tid
-  std::atomic<VectorClock::VC_ID> id;
+  /// holds the tid and the actual clock value -> lower 22 bits are clock and 10 bits are TID
+  //std::atomic<VectorClock::VC_ID> id;
   StackTrace traceDepot;
+  VectorClock<>::VC_ID id;
+  VectorClock<>::TID m_own_tid;
 
  public:
   /// constructor of ThreadState object, initializes tid and clock
   /// copies the vector of parent thread, if a parent thread exists
-  ThreadState(VectorClock::TID own_tid,
-              const std::shared_ptr<ThreadState>& parent = nullptr);
+  ThreadState(VectorClock::TID own_tid, const std::shared_ptr<ThreadState>& parent = nullptr);
 
   /// increases own clock value
   void inc_vc();
@@ -39,12 +40,13 @@ class ThreadState : public VectorClock<> { //TODO: why do we inherit from Vector
   inline VectorClock::VC_ID return_own_id() const { return id; }
 
   /// returns thread id
-  inline VectorClock::TID get_tid() const { return VectorClock::make_tid(id); }
+  inline VectorClock::TID get_tid() const { return m_own_tid; }
+  //we eliminate one more find if we cache the own_tid;
+
+//  inline VectorClock::th_num get_th_num () const { return VectorClock::make_th_num(id); }
 
   /// returns current clock
-  inline VectorClock::Clock get_clock() const {
-    return VectorClock::make_clock(id);
-  }
+  inline VectorClock::Clock get_clock() const { return VectorClock::make_clock(id); }
 
   /// may be called after exitting of thread
   inline void delete_vector() { vc.clear(); }
@@ -52,5 +54,4 @@ class ThreadState : public VectorClock<> { //TODO: why do we inherit from Vector
   /// return stackDepot of this thread
   StackTrace& get_stackDepot() { return traceDepot; }
 };
-
 #endif  // !THREADSTATE_H

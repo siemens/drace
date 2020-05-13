@@ -1,60 +1,30 @@
 #include "prof.h"
-
-#include <easy/profiler.h>
 #include <random>
+#include <fasttrack.h>
 
-FastTrackProf::FastTrackProf() {}
+#define deb(x) std::cout << #x << " = " << std::setw(3) << x << " "
 
-FastTrackProf::~FastTrackProf() {}
 
-void add_remove_stacktrace() {
-  EASY_FUNCTION(profiler::colors::Magenta);
-  {
-    ProfTimer prof_timer;
-
-    StackTrace st;
-    std::random_device rd;
-    std::mt19937 mt(rd());
-    std::uniform_real_distribution<float> dist(0, 9);
-    
-    for (int i = 0; i < 1000; ++i) {
-      EASY_BLOCK("adding elements")
-      for (int j = 0; j < 20; ++j) {
-        st.push_stack_element(j + i);
-        st.set_read_write(j, j * 100);
-      }
-      EASY_END_BLOCK;
-
-      EASY_BLOCK("popping out elements")
-      for (int m = 0; m < 20; m++) {
-        st.pop_stack_element();
-      }
-      EASY_END_BLOCK;
-
-      int addr = int(dist(mt));
-      st.return_stack_trace(addr);
-    }
-  }
-}
-
-void was_found() {
-
-}
+struct VC_ID {
+  uint32_t TID : 10, Clock : 22;
+};
 
 int main() {
 
-  phmap::node_hash_map<std::size_t, std::size_t> test_map;
+  {
+    //ProfTimer timer;
+  }
 
-  std::size_t addr = 3;
-  test_map.emplace(addr, 1);
+  VC_ID test;
 
-  auto it = test_map.find(addr);
+  test.TID = 10;
+  test.Clock = 4194305;
+
+  deb(sizeof(test));
+  deb(test.TID);
+  deb(test.Clock);
 
 
-
-  std::cout << "Did it work again_v4??" << std::endl;
-  int x;
-  std::cin >> x;
-
+  std::cin.get();
   return 0;
 }

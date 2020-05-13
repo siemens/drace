@@ -12,14 +12,13 @@
  */
 
 #include "parallel_hashmap/phmap.h"
-
 /**
     Implements a VectorClock.
     Can hold arbitrarily much pairs of a Thread Id and the belonging clock
 */
 template <class _al = std::allocator<std::pair<const size_t, size_t>>>
 class VectorClock {
- public:
+public:
   /// by dividing the id with the multiplier one gets the tid, with modulo one
   /// gets the clock
 
@@ -32,12 +31,13 @@ class VectorClock {
 #else
   static constexpr size_t multplier = 0x100000000ull;
   typedef size_t VC_ID;
-  typedef unsigned int TID;
-  typedef unsigned int Clock;
+  typedef uint32_t TID;
+  typedef uint32_t Clock;
 #endif
+  typedef uint32_t th_num;//to be used later 
 
   /// vector clock which contains multiple thread ids, clocks
-  phmap::flat_hash_map<uint32_t, size_t> vc;
+  phmap::flat_hash_map<TID, VC_ID> vc;
 
   /// return the thread id of the position pos of the vector clock
   TID get_thr(uint32_t pos) const {
@@ -45,7 +45,8 @@ class VectorClock {
       auto it = vc.begin();
       std::advance(it, pos);
       return it->first;
-    } else {
+    }
+    else {
       return 0;
     }
   };
@@ -78,8 +79,9 @@ class VectorClock {
   void update(TID tid, VC_ID id) {
     auto it = vc.find(tid);
     if (it == vc.end()) {
-      vc.insert({tid, id});
-    } else {
+      vc.insert({ tid, id });
+    }
+    else {
       if (it->second < id) {
         it->second = id;
       }
@@ -97,7 +99,8 @@ class VectorClock {
     auto it = vc.find(tid);
     if (it != vc.end()) {
       return make_clock(it->second);
-    } else {
+    }
+    else {
       return 0;
     }
   }
@@ -107,7 +110,8 @@ class VectorClock {
     auto it = vc.find(tid);
     if (it != vc.end()) {
       return it->second;
-    } else {
+    }
+    else {
       return 0;
     }
   }
