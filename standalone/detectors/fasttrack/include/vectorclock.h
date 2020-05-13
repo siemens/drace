@@ -29,27 +29,28 @@ public:
   typedef unsigned short int TID;
   typedef unsigned short int Clock;
 #else
-  static constexpr size_t multplier = 0x100000000ull;
-  typedef size_t VC_ID;
+  //static constexpr size_t multplier = 0x100000000ull;
+  typedef uint32_t VC_ID;
   typedef uint32_t TID;
   typedef uint32_t Clock;
+  typedef uint32_t Thread_Num;//to be used later 
 #endif
-  typedef uint32_t th_num;//to be used later 
 
   /// vector clock which contains multiple thread ids, clocks
-  phmap::flat_hash_map<TID, VC_ID> vc;
+  phmap::flat_hash_map<Thread_Num, VC_ID> vc;
 
   /// return the thread id of the position pos of the vector clock
-  TID get_thr(uint32_t pos) const {
-    if (pos < vc.size()) {
-      auto it = vc.begin();
-      std::advance(it, pos);
-      return it->first;
-    }
-    else {
-      return 0;
-    }
-  };
+  //TODO: if it is needed we can get the thread id
+  //TID get_thr(uint32_t pos) const {
+  //  if (pos < vc.size()) {
+  //    auto it = vc.begin();
+  //    std::advance(it, pos);
+  //    return it->first;
+  //  }
+  //  else {
+  //    return 0;
+  //  }
+  //};
 
   /// returns the no. of elements of the vector clock
   constexpr uint32_t get_length() { return vc.size(); };
@@ -58,7 +59,7 @@ public:
   /// update
   void update(VectorClock* other) {
     for (auto it = other->vc.begin(); it != other->vc.end(); it++) {
-      if (it->second > get_id_by_tid(it->first)) {
+      if (it->second > get_id_by_th_num(it->first)) {
         update(it->first, it->second);
       }
     }
@@ -69,17 +70,17 @@ public:
   /// update
   void update(const VectorClock& other) {
     for (auto it = other.vc.begin(); it != other.vc.end(); it++) {
-      if (it->second > get_id_by_tid(it->first)) {
+      if (it->second > get_id_by_th_num(it->first)) {
         update(it->first, it->second);
       }
     }
   };
 
   /// updates vector clock entry or creates entry if non-existant
-  void update(TID tid, VC_ID id) {
-    auto it = vc.find(tid);
+  void update(Thread_Num th_num, VC_ID id) {
+    auto it = vc.find(th_num);
     if (it == vc.end()) {
-      vc.insert({ tid, id });
+      vc.insert({ th_num, id });
     }
     else {
       if (it->second < id) {
@@ -89,14 +90,14 @@ public:
   };
 
   /// deletes a vector clock entry, checks existance before
-  void delete_vc(TID tid) { vc.erase(tid); }
+  void delete_vc(Thread_Num th_num) { vc.erase(th_num); }
 
   /**
    * \brief returns known clock of tid
    *        returns 0 if vc does not hold the tid
    */
-  Clock get_clock_by_tid(TID tid) const {
-    auto it = vc.find(tid);
+  Clock get_clock_by_th_num(Thread_Num th_num) const {
+    auto it = vc.find(th_num);
     if (it != vc.end()) {
       return make_clock(it->second);
     }
@@ -106,8 +107,8 @@ public:
   }
 
   /// returns known whole id in vectorclock of tid
-  VC_ID get_id_by_tid(TID tid) const {
-    auto it = vc.find(tid);
+  VC_ID get_id_by_th_num(Thread_Num th_num) const {
+    auto it = vc.find(th_num);
     if (it != vc.end()) {
       return it->second;
     }
@@ -118,17 +119,46 @@ public:
 
   /// returns the tid of the id
   static constexpr TID make_tid(VC_ID id) {
-    return static_cast<TID>(id / multplier);
+    Thread_Num key = id >> 22;
+    auto it = thread_ids.find(key);
+    if (it != thread_ids.end())
+    {
+      return static_cast<TID>(it->second);
+    }
+    else
+    {//we should never reach this one
+      return -1;
+    }
   }
 
   /// returns the clock of the id
-  static constexpr Clock make_clock(VC_ID id) {
-    return static_cast<Clock>(id % multplier);
+  static constexpr Clock make_clock(VC_ID id)
+  {
+    return static_cast<Clock>(id & 0x3FFFFF);
   }
 
+  /// returns the clock of the id
+  static constexpr Thread_Num make_th_num(VC_ID id)
+  {
+    return static_cast<Thread_Num>(id >> 22);
+  }
+
+  static constexpr TID make_tid_from_th_num(Thread_Num th_num)
+  {//TODO: put some checks to shee it's really there
+    return static_cast<TID>(thread_ids[th_num]);
+  }
+
+  //TODO: create a queue of thread numbers;
+  static uint32_t thread_no;
   /// creates an id with clock=0 from an tid
-  static constexpr VC_ID make_id(TID tid) {
-    return tid * VectorClock::multplier;
+  static constexpr VC_ID make_id(TID tid)
+  {
+    thread_ids.emplace(thread_no, tid);
+    VC_ID id = thread_no << 22; //epoch is 0
+    thread_no++;
+    return id;
   }
 };
+uint32_t VectorClock<>::thread_no = 1;
+static phmap::node_hash_map<VectorClock<>::Thread_Num, VectorClock<>::TID> thread_ids;
 #endif

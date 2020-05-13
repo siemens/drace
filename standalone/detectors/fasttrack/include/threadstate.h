@@ -43,7 +43,7 @@ class ThreadState : public VectorClock<>
   inline VectorClock::TID get_tid() const { return m_own_tid; }
   //we eliminate one more find if we cache the own_tid;
 
-//  inline VectorClock::th_num get_th_num () const { return VectorClock::make_th_num(id); }
+  inline VectorClock::Thread_Num get_th_num () const { return VectorClock::make_th_num(id); }
 
   /// returns current clock
   inline VectorClock::Clock get_clock() const { return VectorClock::make_clock(id); }

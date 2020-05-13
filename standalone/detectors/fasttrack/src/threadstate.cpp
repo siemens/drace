@@ -15,7 +15,7 @@ ThreadState::ThreadState(VectorClock::TID own_tid,
     : id(VectorClock::make_id(own_tid)), m_own_tid(own_tid)
 {
   //here we have to add the TID to thread_ids
-  vc.insert({own_tid, id});
+  vc.insert({make_th_num(id), id});
   if (parent != nullptr)
   {
     // if parent exists vector clock
@@ -26,7 +26,7 @@ ThreadState::ThreadState(VectorClock::TID own_tid,
 void ThreadState::inc_vc()
 {
   id++;  // as the lower 32 bits are clock just increase it by one
-  vc[m_own_tid] = id;
+  vc[make_th_num(id)] = id;
 }
 
 

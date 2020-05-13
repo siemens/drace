@@ -66,11 +66,10 @@ class Fasttrack : public Detector {
 #else
  private:
 #endif
-  //maps address to the status of read_shared
+  //maps addr to the status of read_shared
   phmap::parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_ID>> shared_vcs;
   std::array<ipc::spinlock, 1024> spinlocks;
   inline std::size_t Fasttrack::hashOf(std::size_t addr) { return (addr >> 4); }
-
   /*
   ---------------------------------------------------------------------
   What is defined until here is self made
@@ -108,7 +107,8 @@ class Fasttrack : public Detector {
   bool log_flag = false;
 
   /// internal statistics
-  struct log_counters {
+  struct log_counters
+  {
     uint32_t read_ex_same_epoch = 0;
     uint32_t read_sh_same_epoch = 0;
     uint32_t read_shared = 0;
@@ -132,7 +132,8 @@ class Fasttrack : public Detector {
    *                  threads
    */
   void report_race(uint32_t thr1, uint32_t thr2, bool wr1, bool wr2,
-                   const VarState& var, size_t address) const {
+                   const VarState& var, size_t address) const
+  {
     auto it = threads.find(thr1);
     auto it2 = threads.find(thr2);
     auto it_end = threads.end();
@@ -195,10 +196,12 @@ class Fasttrack : public Detector {
   }
 
   template <typename T>
-  void update_VarState(bool is_write, VectorClock<>::VC_ID id, VarState* v,
-                       T shared_vcs_it) {
-    if (is_write) {  // we have to do shared_vcs.erase() here
-      if (shared_vcs_it != shared_vcs.end()) {
+  void update_VarState(bool is_write, VectorClock<>::VC_ID id, VarState* v, T shared_vcs_it)
+  {
+    if (is_write)
+    {  // we have to do shared_vcs.erase() here
+      if (shared_vcs_it != shared_vcs.end())
+      {
         shared_vcs.erase(shared_vcs_it);
       }
       v->r_id = VarState::VAR_NOT_INIT;
@@ -206,15 +209,16 @@ class Fasttrack : public Detector {
       return;
     }
 
-    if (shared_vcs_it == shared_vcs.end()) {  // shared_vc == nullptr
+    if (shared_vcs_it == shared_vcs.end())
+    {  // shared_vc == nullptr
       v->r_id = id;
       return;
     }
 
-    xvector<std::size_t>* shared_vc = &(shared_vcs_it->second);
-    auto it = v->find_in_vec(VectorClock<>::make_tid(id),
-                             shared_vc);  // find_in_vec is from VarSate
-    if (it != shared_vc->end()) {
+    xvector<VectorClock<>::VC_ID>* shared_vc = &(shared_vcs_it->second);
+    auto it = v->find_in_vec(VectorClock<>::make_tid(id), shared_vc);
+    if (it != shared_vc->end())
+    {
       shared_vc->erase(it);
     }
     // here we add more addresses to read_shared => not the error I thought it
@@ -223,12 +227,10 @@ class Fasttrack : public Detector {
   }
 
   /// sets read state of the address to shared
-  /// sets read state of the address to shared
   void set_read_shared( VectorClock<>::VC_ID id, VarState* v, std::size_t addr)
   {
     xvector<VectorClock<>::VC_ID>* tmp;
-    tmp = &(shared_vcs.emplace(addr, xvector<VectorClock<>::VC_ID>(2))
-                .first->second);
+    tmp = &(shared_vcs.emplace(addr, xvector<VectorClock<>::VC_ID>(2)).first->second);
     tmp->push_back(v->r_id);
     tmp->push_back(id);
     v->r_id = VarState::VAR_NOT_INIT;
@@ -247,51 +249,50 @@ class Fasttrack : public Detector {
     }
 
     size_t id = t->return_own_id();  // id means epoch
-    uint32_t tid = t->get_tid();
+    uint32_t th_num = t->get_th_num();
 
     // had to go with normal pointer. figuring out shared_ptr
-    xvector<std::size_t>* shared_vc;
+    xvector<VectorClock<>::VC_ID>* shared_vc;
     auto it = shared_vcs.find(addr);
-    if (it != shared_vcs.end()) {  // if it exists get a pointer to the vector
+    if (it != shared_vcs.end())
+    {  // if it exists get a pointer to the vector
       shared_vc = &(it->second);   // vector copy would be too expensive
-    } else {  // if I find it is read_shared. else it is not
+    }
+    else
+    {  // if I find it is read_shared. else it is not
       shared_vc = nullptr;
     }
 
-    if (shared_vc != nullptr &&
-        v->get_vc_by_thr(tid, shared_vc) == id) {  // read shared same epoch
-      if (log_flag) {
-        log_count.read_sh_same_epoch++;
-      }
+    if (shared_vc != nullptr && v->get_vc_by_th_num(th_num, shared_vc) == id)
+    {  // read shared same epoch
+      if (log_flag) { log_count.read_sh_same_epoch++; }
       return;
     }
 
-    if (v->is_wr_race(t)) {  // write-read race
-      report_race_locked(v->get_w_tid(), tid, true, false, *v, addr);
+    if (v->is_wr_race(t))
+    {  // write-read race
+      report_race_locked(v->get_w_tid(), t->get_tid(), true, false, *v, addr);
     }
 
     // update vc
-    if (shared_vc == nullptr) {  // if it's not read shared
+    if (shared_vc == nullptr)
+    {  // if it's not read shared
       if (v->get_read_id() == VarState::VAR_NOT_INIT ||
-          (v->get_r_tid() ==
-           tid)) {  // read exclusive => read of same thread but newer epoch
+          (v->get_r_th_num() == th_num))
+      {  // read exclusive => read of same thread but newer epoch
         update_VarState(false, id, v, it);
-        if (log_flag) {
-          log_count.read_exclusive++;
-        }
-      } else  // => means that (v->get_r_tid() != tid) && or variable hasn't
-              // been read yet
-      {       // read gets shared
+        if (log_flag) { log_count.read_exclusive++; }
+      }
+      else
+      {//=> means that (v->get_r_tid() != tid) && or variable hasn't been read yet read gets shared
         set_read_shared(id, v, addr);
-        if (log_flag) {
-          log_count.read_share++;
-        }
+        if (log_flag) { log_count.read_share++; }
       }
-    } else {  // read shared
+    }
+    else
+    {  // read shared
       update_VarState(false, id, v, it);
-      if (log_flag) {
-        log_count.read_shared++;
-      }
+      if (log_flag) { log_count.read_shared++;}
     }
   }
 
@@ -300,15 +301,16 @@ class Fasttrack : public Detector {
    * \note works only on calling-thread and var object, not on any list
    */
   void write(ThreadState* t, VarState* v, size_t addr) {
-    if (t->return_own_id() == v->get_write_id()) {  // write same epoch
-      if (log_flag) {
-        log_count.write_same_epoch++;
-      }
+    if (t->return_own_id() == v->get_write_id())
+    {  // write same epoch
+      if (log_flag) { log_count.write_same_epoch++; }
       return;
     }
 
-    uint32_t tid = t->get_tid();
-    xvector<std::size_t>* shared_vc;
+    uint32_t th_num = t->get_th_num();
+    VectorClock<>::TID tid = t->get_tid();
+
+    xvector<VectorClock<>::VC_ID>* shared_vc;
     auto it = shared_vcs.find(addr);
     if (it != shared_vcs.end()) {  // if it exists get a pointer to the vector
       shared_vc = &(it->second);   // vector copy would be too expensive
@@ -316,36 +318,35 @@ class Fasttrack : public Detector {
       shared_vc = nullptr;
     }
 
-    if (v->get_write_id() ==
-        VarState::VAR_NOT_INIT) {  // initial write, update var
-      if (log_flag) {
-        log_count.write_exclusive++;
-      }
+    if (v->get_write_id() == VarState::VAR_NOT_INIT)
+    {  // initial write, update var
+      if (log_flag) { log_count.write_exclusive++;}
       update_VarState(true, t->return_own_id(), v, it);
       return;
     }
 
     // tids are different and write epoch greater or
     // equal than known epoch of other thread
-    if (v->is_ww_race(t)) {  // write-write race
+    if (v->is_ww_race(t))
+    {  // write-write race
       report_race_locked(v->get_w_tid(), tid, true, true, *v, addr);
     }
 
-    if (shared_vc == nullptr) {  //! v->is_read_shared()
-      if (log_flag) {
-        log_count.write_exclusive++;
+    if (shared_vc == nullptr)
+    {  //! v->is_read_shared()
+      if (log_flag) { log_count.write_exclusive++; }
+      if (v->is_rw_ex_race(t))
+      {  // read-write race
+        report_race_locked(v->get_r_tid(), tid, false, true, *v, addr);
       }
-      if (v->is_rw_ex_race(t)) {  // read-write race
-        report_race_locked(v->get_r_tid(), t->get_tid(), false, true, *v, addr);
-      }
-    } else {  // come here in read shared case
-      if (log_flag) {
-        log_count.write_shared++;
-      }
-      uint32_t act_tid = v->is_rw_sh_race(t, shared_vc);
-      if (act_tid != 0)  // read shared read-write race
-      {
-        report_race_locked(act_tid, tid, false, true, *v, addr);
+    }
+    else
+    {  // come here in read shared case
+      if (log_flag) { log_count.write_shared++; }
+      VectorClock<>::Thread_Num act_th_num = v->is_rw_sh_race(t, shared_vc);
+      if (act_th_num != 0)  //we return 0 & we start counting for Thread_Num from 1
+      {// read shared read-write race
+        report_race_locked(VectorClock<>::make_tid_from_th_num(act_th_num), tid, false, true, *v, addr);
       }
     }
     update_VarState(true, t->return_own_id(), v, it);
@@ -355,12 +356,9 @@ class Fasttrack : public Detector {
    * \brief creates a new variable object (is called, when var is read or
    * written for the first time) \note Invariant: vars table is locked
    */
-  inline auto create_var(size_t addr, size_t size) {
+  inline auto create_var(size_t addr, size_t size)
+  {
     return vars.emplace(addr, static_cast<uint16_t>(size)).first;
-    // return vars.emplace(std::piecewise_construct,
-    // std::forward_as_tuple(addr),
-    //  std::forward_as_tuple(size))
-    //  .first;
   }
 
   /// creates a new lock object (is called when a lock is acquired or released
@@ -373,7 +371,8 @@ class Fasttrack : public Detector {
   }
 
   /// creates a new thread object (is called when fork() called)
-  ThreadState* create_thread(VectorClock<>::TID tid, ts_ptr parent = nullptr) {
+  ThreadState* create_thread(VectorClock<>::TID tid, ts_ptr parent = nullptr)
+  {
     ts_ptr new_thread;
 
     if (nullptr == parent) {
@@ -389,7 +388,8 @@ class Fasttrack : public Detector {
   }
 
   /// creates a happens_before object
-  inline auto create_happens(void* identifier) {
+  inline auto create_happens(void* identifier)
+  {
     return happens_states
         .emplace(std::piecewise_construct, std::forward_as_tuple(identifier),
                  std::forward_as_tuple())
@@ -397,12 +397,14 @@ class Fasttrack : public Detector {
   }
 
   /// creates an allocation object
-  inline void create_alloc(size_t addr, size_t size) {
+  inline void create_alloc(size_t addr, size_t size)
+  {
     allocs.emplace(addr, size);
   }
 
   /// print statistics about rule-hits
-  void process_log_output() const {
+  void process_log_output() const
+  {
     double read_actions, write_actions;
     // percentages
     double rd, wr, r_ex_se, r_sh_se, r_ex, r_share, r_shared, w_se, w_ex, w_sh;
@@ -456,7 +458,8 @@ class Fasttrack : public Detector {
    * is called when a thread finishes (either from \ref join() or from \ref
    * finish()) \note Not Threadsafe
    */
-  void cleanup(uint32_t tid) {
+  void cleanup(uint32_t tid)
+  {//TODO: make it so that here we also yield the thread_num
     {
       for (auto it = locks.begin(); it != locks.end(); ++it) {
         it->second.delete_vc(tid);
@@ -472,7 +475,8 @@ class Fasttrack : public Detector {
     }
   }
 
-  void parse_args(int argc, const char** argv) {
+  void parse_args(int argc, const char** argv)
+  {
     int processed = 1;
     while (processed < argc) {
       if (strcmp(argv[processed], "--stats") == 0) {
@@ -494,7 +498,8 @@ class Fasttrack : public Detector {
     return true;
   }
 
-  void finalize() final {
+  void finalize() final
+  { //TODO: add other stuff here as well
     std::lock_guard<LockT> lg1(g_lock);
     {
       std::lock_guard<ipc::spinlock> lg2(vars_spl);
@@ -513,8 +518,8 @@ class Fasttrack : public Detector {
   void read(tls_t tls, void* pc, void* addr, size_t size) final
   {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().set_read_write((size_t)(addr),
-                                         reinterpret_cast<size_t>(pc));
+    thr->get_stackDepot().set_read_write((size_t)(addr),reinterpret_cast<size_t>(pc));
+
     {
       std::lock_guard<ipc::spinlock> lg(
           spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
@@ -536,7 +541,9 @@ class Fasttrack : public Detector {
       }
 #if PROF_INFO
       // it_lock->second.unlock();
-      // deb(vars.capacity());
+       //deb(vars.capacity());
+       //deb(sizeof(*var));
+       //std::cout << std::endl;
       // deb(sizeof(VectorClock<>));
       // std::cout << std::endl;
 #endif
@@ -544,10 +551,10 @@ class Fasttrack : public Detector {
     }
   }
 
-  void write(tls_t tls, void* pc, void* addr, size_t size) final {
+  void write(tls_t tls, void* pc, void* addr, size_t size) final
+  {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().set_read_write((size_t)addr,
-                                         reinterpret_cast<size_t>(pc));
+    thr->get_stackDepot().set_read_write((size_t)addr, reinterpret_cast<size_t>(pc));
     {
       std::lock_guard<ipc::spinlock> lg(
           spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
@@ -564,17 +571,20 @@ class Fasttrack : public Detector {
     }
   }
 
-  void func_enter(tls_t tls, void* pc) final {
+  void func_enter(tls_t tls, void* pc) final
+  {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
     thr->get_stackDepot().push_stack_element(reinterpret_cast<size_t>(pc));
   }
 
-  void func_exit(tls_t tls) final {
+  void func_exit(tls_t tls) final
+  {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
     thr->get_stackDepot().pop_stack_element();
   }
 
-  void fork(tid_t parent, tid_t child, tls_t* tls) final {
+  void fork(tid_t parent, tid_t child, tls_t* tls) final
+  {
     ThreadState* thr;
 
     std::lock_guard<LockT> exLockT(g_lock);
@@ -584,7 +594,9 @@ class Fasttrack : public Detector {
         thrit->second->inc_vc();  // inc vector clock for creation of new thread
       }
       thr = create_thread(child, threads[parent]);
-    } else {
+    }
+    else
+    {
       thr = create_thread(child);
     }
     *tls = reinterpret_cast<tls_t>(thr);
@@ -603,7 +615,8 @@ class Fasttrack : public Detector {
   }
 
   // sync thread vc to lock vc
-  void acquire(tls_t tls, void* mutex, int recursive, bool write) final {
+  void acquire(tls_t tls, void* mutex, int recursive, bool write) final
+  {
     if (recursive >
         1) {   // lock haven't been updated by another thread (by definition)
       return;  // therefore no action needed here as only the invoking thread
@@ -619,7 +632,8 @@ class Fasttrack : public Detector {
     (thr)->update(it->second);
   }
 
-  void release(tls_t tls, void* mutex, bool write) final {
+  void release(tls_t tls, void* mutex, bool write) final
+  {
     std::lock_guard<LockT> exLockT(g_lock);
     auto it = locks.find(mutex);
     if (it == locks.end()) {
@@ -635,11 +649,13 @@ class Fasttrack : public Detector {
     thr->inc_vc();
 
     // increase vector clock and propagate to lock
-    it->second.update(thr);
+    it->second.update(thr);//ThreadState* is VectorClock* (inheritance)
+
   }
 
   // identifier = TID of another thread, which happens before our thread
-  void happens_before(tls_t tls, void* identifier) final {
+  void happens_before(tls_t tls, void* identifier) final
+  {
     std::lock_guard<LockT> exLockT(g_lock);
     auto it = happens_states.find(identifier);
     if (it == happens_states.end()) {
@@ -649,10 +665,12 @@ class Fasttrack : public Detector {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
 
     thr->inc_vc();  // increment clock of thread and update happens state
-    it->second.update(thr->get_tid(), thr->return_own_id());
+    it->second.update(thr->get_th_num(), thr->return_own_id());
+    //calls update(Thread_Num th_num, VC_ID id) 
   }
 
-  void happens_after(tls_t tls, void* identifier) final {
+  void happens_after(tls_t tls, void* identifier) final
+  {
     {
       std::lock_guard<LockT> exLockT(g_lock);
       auto it = happens_states.find(identifier);
@@ -662,7 +680,7 @@ class Fasttrack : public Detector {
       } else {
         ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
         // update vector clock of thread with happened before clocks
-        thr->update(it->second);
+        thr->update(it->second);//calls update(VectorClock* other)
       }
     }
   }
@@ -678,7 +696,8 @@ class Fasttrack : public Detector {
   }
 
   // when we deallocate a variable we erase it from the VarState
-  void deallocate(tls_t tls, void* addr) final {
+  void deallocate(tls_t tls, void* addr) final
+  {
 #if REGARD_ALLOCS
     size_t address = reinterpret_cast<size_t>(addr);
     size_t end_addr;
@@ -707,12 +726,14 @@ class Fasttrack : public Detector {
 #endif
   }
 
-  void detach(tls_t tls, tid_t thread_id) final {
+  void detach(tls_t tls, tid_t thread_id) final
+  {
     /// \todo This is currently not supported
     return;
   }
 
-  void finish(tls_t tls, tid_t thread_id) final {
+  void finish(tls_t tls, tid_t thread_id) final
+  {
     std::lock_guard<LockT> exLockT(g_lock);
     /// just delete thread from list, no backward sync needed
     threads.erase(thread_id);

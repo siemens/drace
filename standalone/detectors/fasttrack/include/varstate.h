@@ -34,15 +34,6 @@ class VarState
 
   explicit inline VarState(uint16_t var_size) : size(var_size) {}
 
-  /// evaluates for write/write races through this and and access through t
-  bool is_ww_race(ThreadState* t) const;
-
-  /// evaluates for write/read races through this and and access through t
-  bool is_wr_race(ThreadState* t) const;
-
-  /// evaluates for read-exclusive/write races through this and and access
-  /// through t
-  bool is_rw_ex_race(ThreadState* t) const;
 
   /// returns id of last write access
   inline VectorClock<>::VC_ID get_write_id() const { return w_id; }
@@ -53,6 +44,9 @@ class VarState
   /// return tid of thread which last wrote this var
   inline VectorClock<>::TID get_w_tid() const { return VectorClock<>::make_tid(w_id); }
 
+  inline VectorClock<>::Thread_Num get_w_th_num() const { return VectorClock<>::make_th_num(w_id); }
+  inline VectorClock<>::Thread_Num get_r_th_num() const { return VectorClock<>::make_th_num(r_id); }
+
   /// return tid of thread which last read this var, if not read shared
   inline VectorClock<>::TID get_r_tid() const { return VectorClock<>::make_tid(r_id); }
 
@@ -62,12 +56,28 @@ class VarState
   /// returns clock value of thread of last read access (returns 0 when read is shared)
   inline VectorClock<>::Clock get_r_clock() const { return VectorClock<>::make_clock(r_id); }
 
-  std::vector<VectorClock<>::VC_ID>::iterator find_in_vec(VectorClock<>::TID tid, xvector<VectorClock<>::VC_ID>* shared_vc) const;
-  VectorClock<>::Clock get_clock_by_thr(VectorClock<>::TID tid, xvector<VectorClock<>::VC_ID>* shared_vc) const;
-  VectorClock<>::VC_ID get_vc_by_thr(VectorClock<>::TID tid, xvector<VectorClock<>::VC_ID>* shared_vc) const;
-  VectorClock<>::VC_ID get_sh_id(uint32_t pos, xvector<VectorClock<>::VC_ID>* shared_vc) const;
-  VectorClock<>::TID is_rw_sh_race(ThreadState* t, xvector<VectorClock<>::VC_ID>* shared_vc) const;
+  /// evaluates for write/write races through this and and access through t
+  bool is_ww_race(ThreadState* t) const;
 
+  /// evaluates for write/read races through this and and access through t
+  bool is_wr_race(ThreadState* t) const;
+
+  /// evaluates for read-exclusive/write races through this and and access
+  /// through t
+  bool is_rw_ex_race(ThreadState* t) const;
+
+  VectorClock<>::Thread_Num VarState::is_rw_sh_race(ThreadState* t, xvector<VectorClock<>::VC_ID>* shared_vc) const;
+
+  std::vector<VectorClock<>::VC_ID>::iterator VarState::find_in_vec(
+    VectorClock<>::Thread_Num th_num, xvector<VectorClock<>::VC_ID>* shared_vc) const;
+
+  VectorClock<>::VC_ID VarState::get_sh_id(uint32_t pos, xvector<VectorClock<>::VC_ID>* shared_vc) const;
+
+  VectorClock<>::VC_ID VarState::get_vc_by_th_num(
+    VectorClock<>::Thread_Num th_num, xvector<VectorClock<>::VC_ID>* shared_vc) const;
+
+  VectorClock<>::Clock VarState::get_clock_by_th_num(
+    VectorClock<>::Thread_Num th_num, xvector<VectorClock<>::VC_ID>* shared_vc) const;
   /// returns true when read is shared
   // bool is_read_shared() const { return (shared_vc == false) ? false : true; }
 
