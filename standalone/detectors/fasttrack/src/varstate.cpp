@@ -11,19 +11,23 @@
 #include "varstate.h"
 
 /// evaluates for write/write races through this and and access through t
-bool VarState::is_ww_race(ThreadState* t) const {
+bool VarState::is_ww_race(ThreadState* t) const
+{
   if (get_write_id() != VAR_NOT_INIT && t->get_th_num() != get_w_th_num() &&
-    get_w_clock() >= t->get_clock_by_th_num(get_w_th_num())) {
+          get_w_clock() >= t->get_clock_by_th_num(get_w_th_num()))
+  {
     return true;
   }
   return false;
 }
 
 /// evaluates for write/read races through this and and access through t
-bool VarState::is_wr_race(ThreadState* t) const {
+bool VarState::is_wr_race(ThreadState* t) const
+{
   auto var_th_num = get_w_th_num();
-  if (get_write_id() != VAR_NOT_INIT && var_th_num != t->get_th_num() &&
-    get_w_clock() >= t->get_clock_by_th_num(var_th_num)) {
+  if (get_write_id() != VAR_NOT_INIT && (var_th_num != t->get_th_num()) &&
+          (get_w_clock() >= t->get_clock_by_th_num(var_th_num)))
+  {
     return true;
   }
   return false;
@@ -31,10 +35,11 @@ bool VarState::is_wr_race(ThreadState* t) const {
 
 /// evaluates for read-exclusive/write races through this and and access through
 /// t
-bool VarState::is_rw_ex_race(ThreadState* t) const {
+bool VarState::is_rw_ex_race(ThreadState* t) const
+{
   auto var_th_num = get_r_th_num();
   if (get_read_id() != VAR_NOT_INIT && t->get_th_num() != var_th_num &&
-    get_r_clock() >= t->get_clock_by_th_num(var_th_num))  // read-write race
+          get_r_clock() >= t->get_clock_by_th_num(var_th_num))  // read-write race
   {
     return true;
   }
@@ -49,7 +54,7 @@ VectorClock<>::Thread_Num VarState::is_rw_sh_race(ThreadState* t, xvector<Vector
     VectorClock<>::VC_ID act_id = get_sh_id(i, shared_vc);
     VectorClock<>::Thread_Num act_th_num = VectorClock<>::make_th_num(act_id);
 
-    if (act_id != 0 && t->get_tid() != act_th_num &&
+    if (act_id != 0 && t->get_th_num() != act_th_num &&
         VectorClock<>::make_clock(act_id) >= t->get_clock_by_th_num(act_th_num)) {
       return act_th_num;
     }
@@ -107,40 +112,3 @@ VectorClock<>::Clock VarState::get_clock_by_th_num(
   }
   return 0;
 }
-
-
-/**
- * \brief updates the var state because of an new read or write access through
- * an thread \todo check thread-safety
- */
- // void VarState::update(bool is_write, VectorClock<>::VC_ID id) {
- //  if (is_write)
- //  {// we have to do shared_vcs.erase() here
- //    shared_vc = nullptr; //.reset();
- //    r_id = VAR_NOT_INIT;
- //    w_id = id;
- //    return;
- //  }
- //
- //  if (shared_vc == nullptr) {
- //    r_id = id;
- //    return;
- //  }
- //
- //  auto it = find_in_vec(VectorClock<>::make_tid(id));
- //  if (it != shared_vc->end()) {
- //    shared_vc->erase(it);
- //  }
- //  shared_vc->push_back(id);
- //}
- //
- ///// sets read state to shared
- // void VarState::set_read_shared(VectorClock<>::VC_ID id)
- //{ // no need for find here, but we have to access hashmap shared_vcs
- //  shared_vc = std::make_unique<xvector<size_t>>();
- //  shared_vc->reserve(2);
- //  shared_vc->push_back(r_id);
- //  shared_vc->push_back(id);
- //
- //  r_id = VAR_NOT_INIT;
- //}

@@ -230,9 +230,10 @@ class Fasttrack : public Detector {
   void set_read_shared( VectorClock<>::VC_ID id, VarState* v, std::size_t addr)
   {
     xvector<VectorClock<>::VC_ID>* tmp;
+    //remov
     tmp = &(shared_vcs.emplace(addr, xvector<VectorClock<>::VC_ID>(2)).first->second);
-    tmp->push_back(v->r_id);
-    tmp->push_back(id);
+    tmp->operator[](0) = (v->r_id);
+    tmp->operator[](1) = (id);
     v->r_id = VarState::VAR_NOT_INIT;
   }
 
@@ -300,7 +301,8 @@ class Fasttrack : public Detector {
    * \brief takes care of a write access
    * \note works only on calling-thread and var object, not on any list
    */
-  void write(ThreadState* t, VarState* v, size_t addr) {
+  void write(ThreadState* t, VarState* v, size_t addr)
+  {
     if (t->return_own_id() == v->get_write_id())
     {  // write same epoch
       if (log_flag) { log_count.write_same_epoch++; }

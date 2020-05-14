@@ -37,57 +37,55 @@ public:
 #endif
 
   /// vector clock which contains multiple thread ids, clocks
-  phmap::flat_hash_map<Thread_Num, VC_ID> vc;
-
-  /// return the thread id of the position pos of the vector clock
-  //TODO: if it is needed we can get the thread id
-  //TID get_thr(uint32_t pos) const {
-  //  if (pos < vc.size()) {
-  //    auto it = vc.begin();
-  //    std::advance(it, pos);
-  //    return it->first;
-  //  }
-  //  else {
-  //    return 0;
-  //  }
-  //};
+  //phmap::flat_hash_map<Thread_Num, VC_ID> vc;
+  std::unordered_map<Thread_Num, VC_ID> vc;
 
   /// returns the no. of elements of the vector clock
-  constexpr uint32_t get_length() { return vc.size(); };
+  constexpr uint32_t get_length() { return vc.size(); }
 
   /// updates this.vc with values of other.vc, if they're larger -> one way
   /// update
-  void update(VectorClock* other) {
-    for (auto it = other->vc.begin(); it != other->vc.end(); it++) {
-      if (it->second > get_id_by_th_num(it->first)) {
+  void update(VectorClock* other)
+  {
+    for (auto it = other->vc.begin(); it != other->vc.end(); it++)
+    {
+      if (it->second > get_id_by_th_num(it->first))
+      {
         update(it->first, it->second);
       }
     }
-  };
+  }
 
   //TODO: maybe use an rvalue reference ?
   /// updates this.vc with values of other.vc, if they're larger -> one way
   /// update
-  void update(const VectorClock& other) {
-    for (auto it = other.vc.begin(); it != other.vc.end(); it++) {
-      if (it->second > get_id_by_th_num(it->first)) {
+  void update(const VectorClock& other)
+  {
+     for (auto it = other.vc.begin(); it != other.vc.end(); it++)
+    {
+      if (it->second > get_id_by_th_num(it->first))
+      {
         update(it->first, it->second);
       }
     }
-  };
+  }
 
   /// updates vector clock entry or creates entry if non-existant
-  void update(Thread_Num th_num, VC_ID id) {
+  void update(Thread_Num th_num, VC_ID id)
+  {
     auto it = vc.find(th_num);
-    if (it == vc.end()) {
+    if (it == vc.end())
+    {
       vc.insert({ th_num, id });
     }
-    else {
-      if (it->second < id) {
+    else
+    {
+      if (it->second < id)
+      {
         it->second = id;
       }
     }
-  };
+  }
 
   /// deletes a vector clock entry, checks existance before
   void delete_vc(Thread_Num th_num) { vc.erase(th_num); }
@@ -96,31 +94,38 @@ public:
    * \brief returns known clock of tid
    *        returns 0 if vc does not hold the tid
    */
-  Clock get_clock_by_th_num(Thread_Num th_num) const {
+  Clock get_clock_by_th_num(Thread_Num th_num) const
+  {
     auto it = vc.find(th_num);
-    if (it != vc.end()) {
+    if (it != vc.end())
+    {
       return make_clock(it->second);
     }
-    else {
+    else
+    {
       return 0;
     }
   }
 
   /// returns known whole id in vectorclock of tid
-  VC_ID get_id_by_th_num(Thread_Num th_num) const {
+  VC_ID get_id_by_th_num(Thread_Num th_num) const
+  {
     auto it = vc.find(th_num);
-    if (it != vc.end()) {
+    if (it != vc.end())
+    {
       return it->second;
     }
-    else {
+    else
+    {
       return 0;
     }
   }
 
   /// returns the tid of the id
-  static constexpr TID make_tid(VC_ID id) {
+  static constexpr TID make_tid(VC_ID id)
+  {
     Thread_Num key = id >> 22;
-    auto it = thread_ids.find(key);
+    auto it = thread_ids.find(static_cast<Thread_Num>(key));
     if (it != thread_ids.end())
     {
       return static_cast<TID>(it->second);
@@ -144,12 +149,13 @@ public:
   }
 
   static constexpr TID make_tid_from_th_num(Thread_Num th_num)
-  {//TODO: put some checks to shee it's really there
+  {//TODO: put some checks to see it's really there
     return static_cast<TID>(thread_ids[th_num]);
   }
 
   //TODO: create a queue of thread numbers;
-  static uint32_t thread_no;
+  static Thread_Num thread_no;
+  static std::unordered_map<VectorClock<>::Thread_Num, VectorClock<>::TID> thread_ids;
   /// creates an id with clock=0 from an tid
   static constexpr VC_ID make_id(TID tid)
   {
@@ -160,5 +166,5 @@ public:
   }
 };
 uint32_t VectorClock<>::thread_no = 1;
-static phmap::node_hash_map<VectorClock<>::Thread_Num, VectorClock<>::TID> thread_ids;
+std::unordered_map<VectorClock<>::Thread_Num, VectorClock<>::TID> VectorClock<>::thread_ids;
 #endif

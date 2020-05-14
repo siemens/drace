@@ -10,11 +10,9 @@
  */
 #include "threadstate.h"
 
-ThreadState::ThreadState(VectorClock::TID own_tid,
-                         const std::shared_ptr<ThreadState>& parent)
-    : id(VectorClock::make_id(own_tid)), m_own_tid(own_tid)
-{
-  //here we have to add the TID to thread_ids
+ThreadState::ThreadState(VectorClock::TID own_tid, const std::shared_ptr<ThreadState>& parent)
+                          : id(VectorClock::make_id(own_tid)), m_own_tid(own_tid)
+{//here we have to add the TID to thread_ids
   vc.insert({make_th_num(id), id});
   if (parent != nullptr)
   {

@@ -23,6 +23,27 @@ std::unordered_map<std::string, std::shared_ptr<util::LibraryLoader>>
 DetectorTest::_libs;
 std::unordered_map<std::string, Detector*> DetectorTest::_detectors;
 
+TEST_P(DetectorTest, Mutex) {
+  Detector::tls_t tls20;
+  Detector::tls_t tls21;
+
+  detector->fork(1, 20, &tls20);
+  detector->fork(1, 21, &tls21);
+  // First Thread
+  detector->acquire(tls20, (void*)0x01000000, 1, true);
+  detector->write(tls20, (void*)0x0021, (void*)0x00200000, 8);
+  detector->read(tls20, (void*)0x0022, (void*)0x00200000, 8);
+  detector->release(tls20, (void*)0x01000000, true);
+
+  // Second Thread
+  detector->acquire(tls21, (void*)0x01000000, 1, true);
+  detector->read(tls21, (void*)0x0024, (void*)0x00200000, 8);
+  detector->write(tls21, (void*)0x0025, (void*)0x00200000, 8);
+  detector->release(tls21, (void*)0x01000000, true);
+
+  EXPECT_EQ(num_races, 0);
+}
+
 TEST_P(DetectorTest, WR_Race) {
   Detector::tls_t tls10;
   Detector::tls_t tls11;
@@ -98,26 +119,7 @@ TEST_P(DetectorTest, RW_Race) {
   EXPECT_EQ(num_races, 1);
 }
 
-TEST_P(DetectorTest, Mutex) {
-  Detector::tls_t tls20;
-  Detector::tls_t tls21;
 
-  detector->fork(1, 20, &tls20);
-  detector->fork(1, 21, &tls21);
-  // First Thread
-  detector->acquire(tls20, (void*)0x01000000, 1, true);
-  detector->write(tls20, (void*)0x0021, (void*)0x00200000, 8);
-  detector->read(tls20, (void*)0x0022, (void*)0x00200000, 8);
-  detector->release(tls20, (void*)0x01000000, true);
-
-  // Second Thread
-  detector->acquire(tls21, (void*)0x01000000, 1, true);
-  detector->read(tls21, (void*)0x0024, (void*)0x00200000, 8);
-  detector->write(tls21, (void*)0x0025, (void*)0x00200000, 8);
-  detector->release(tls21, (void*)0x01000000, true);
-
-  EXPECT_EQ(num_races, 0);
-}
 
 TEST_P(DetectorTest, VarLength) {
   Detector::tls_t tls22;
@@ -392,7 +394,8 @@ void dummy_func() {}
 
 /// This is just a smoke test to check if the detectors
 /// do not crash (or deadlock) when accessed concurrently
-TEST_P(DetectorTest, Parallelism) {
+TEST_P(DetectorTest, Parallelism)
+{
 #ifdef DEBUG
   constexpr size_t size = 4096;
 #else
@@ -474,7 +477,7 @@ TEST_P(DetectorTest, Parallelism) {
 // Setup value-parameterized tests
 #ifdef WIN32
 INSTANTIATE_TEST_SUITE_P(Interface, DetectorTest,
-  ::testing::Values("fasttrack.standalone", "tsan"));
+  ::testing::Values("fasttrack.standalone")); //, "tsan"
 #else
 INSTANTIATE_TEST_SUITE_P(Interface, DetectorTest,
   ::testing::Values("fasttrack.standalone"));
