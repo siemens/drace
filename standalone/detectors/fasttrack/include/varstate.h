@@ -21,19 +21,20 @@
  * \brief stores information about a memory location
  * \note does not store the address to avoid redundant information
  */
-class VarState
-{
+class VarState {
  public:
   static constexpr uint32_t VAR_NOT_INIT = 0;
-  VectorClock<>::VC_ID w_id { VAR_NOT_INIT };  // these are epochs
-  /// local clock of last read
-  VectorClock<>::VC_ID r_id { VAR_NOT_INIT }; // now they should be 32 bits 
 
-  // TODO: remove the const for copy constructor if we move to flat_hash_map
+  /// local clock of last read
+  VectorClock<>::VC_ID w_id{VAR_NOT_INIT};
+  // these are th_num (first 10 bits) + epochss
+
+  /// local clock of last read
+  VectorClock<>::VC_ID r_id{VAR_NOT_INIT};  // now they should be 32 bits
+
   const uint16_t size;  // TODO: make size smaller
 
   explicit inline VarState(uint16_t var_size) : size(var_size) {}
-
 
   /// returns id of last write access
   inline VectorClock<>::VC_ID get_write_id() const { return w_id; }
@@ -42,19 +43,32 @@ class VarState
   inline VectorClock<>::VC_ID get_read_id() const { return r_id; }
 
   /// return tid of thread which last wrote this var
-  inline VectorClock<>::TID get_w_tid() const { return VectorClock<>::make_tid(w_id); }
+  inline VectorClock<>::TID get_w_tid() const {
+    return VectorClock<>::make_tid(w_id);
+  }
 
-  inline VectorClock<>::Thread_Num get_w_th_num() const { return VectorClock<>::make_th_num(w_id); }
-  inline VectorClock<>::Thread_Num get_r_th_num() const { return VectorClock<>::make_th_num(r_id); }
+  inline VectorClock<>::Thread_Num get_w_th_num() const {
+    return VectorClock<>::make_th_num(w_id);
+  }
+  inline VectorClock<>::Thread_Num get_r_th_num() const {
+    return VectorClock<>::make_th_num(r_id);
+  }
 
   /// return tid of thread which last read this var, if not read shared
-  inline VectorClock<>::TID get_r_tid() const { return VectorClock<>::make_tid(r_id); }
+  inline VectorClock<>::TID get_r_tid() const {
+    return VectorClock<>::make_tid(r_id);
+  }
 
   /// returns clock value of thread of last write access
-  inline VectorClock<>::Clock get_w_clock() const { return VectorClock<>::make_clock(w_id); }
+  inline VectorClock<>::Clock get_w_clock() const {
+    return VectorClock<>::make_clock(w_id);
+  }
 
-  /// returns clock value of thread of last read access (returns 0 when read is shared)
-  inline VectorClock<>::Clock get_r_clock() const { return VectorClock<>::make_clock(r_id); }
+  /// returns clock value of thread of last read access (returns 0 when read is
+  /// shared)
+  inline VectorClock<>::Clock get_r_clock() const {
+    return VectorClock<>::make_clock(r_id);
+  }
 
   /// evaluates for write/write races through this and and access through t
   bool is_ww_race(ThreadState* t) const;
@@ -66,73 +80,28 @@ class VarState
   /// through t
   bool is_rw_ex_race(ThreadState* t) const;
 
-  VectorClock<>::Thread_Num VarState::is_rw_sh_race(ThreadState* t, xvector<VectorClock<>::VC_ID>* shared_vc) const;
+  /// evaluates for read-shared/write races through this and and access through
+  /// "t"
+  VectorClock<>::Thread_Num VarState::is_rw_sh_race(
+      ThreadState* t, xvector<VectorClock<>::VC_ID>* shared_vc) const;
 
+  /// finds the entry with the th_num in the shared vectorclock
   std::vector<VectorClock<>::VC_ID>::iterator VarState::find_in_vec(
-    VectorClock<>::Thread_Num th_num, xvector<VectorClock<>::VC_ID>* shared_vc) const;
-
-  VectorClock<>::VC_ID VarState::get_sh_id(uint32_t pos, xvector<VectorClock<>::VC_ID>* shared_vc) const;
-
-  VectorClock<>::VC_ID VarState::get_vc_by_th_num(
-    VectorClock<>::Thread_Num th_num, xvector<VectorClock<>::VC_ID>* shared_vc) const;
-
-  VectorClock<>::Clock VarState::get_clock_by_th_num(
-    VectorClock<>::Thread_Num th_num, xvector<VectorClock<>::VC_ID>* shared_vc) const;
-  /// returns true when read is shared
-  // bool is_read_shared() const { return (shared_vc == false) ? false : true; }
-
-  /// updates the var state because of an new read or write access through an
-  /// thread
-  //void update(bool is_write, size_t id);
-
-  /// sets read state to shared
-  //void set_read_shared(size_t id);
+      VectorClock<>::Thread_Num th_num,
+      xvector<VectorClock<>::VC_ID>* shared_vc) const;
 
   /// if in read_shared state, then returns id of position pos in vector clock
-  // VectorClock<>::VC_ID get_sh_id(uint32_t pos) const;
+  VectorClock<>::VC_ID VarState::get_sh_id(
+      uint32_t pos, xvector<VectorClock<>::VC_ID>* shared_vc) const;
 
   /// return stored clock value, which belongs to ThreadState t, 0 if not
   /// available
-  // VectorClock<>::VC_ID get_vc_by_thr(VectorClock<>::TID t) const;
+  VectorClock<>::VC_ID VarState::get_vc_by_th_num(
+      VectorClock<>::Thread_Num th_num,
+      xvector<VectorClock<>::VC_ID>* shared_vc) const;
 
-  // VectorClock<>::Clock get_clock_by_thr(VectorClock<>::TID t) const;
-  /// finds the entry with the tid in the shared vectorclock
-  // auto find_in_vec(VectorClock<>::TID tid) const;
-
-  /// evaluates for read-shared/write races through this and and access through
-  /// "t"
-  // VectorClock<>::TID is_rw_sh_race(ThreadState* t) const;
-
+  VectorClock<>::Clock VarState::get_clock_by_th_num(
+      VectorClock<>::Thread_Num th_num,
+      xvector<VectorClock<>::VC_ID>* shared_vc) const;
 };
 #endif  // !VARSTATE_H
-
-//----------------------------------------------------------------------------------------------
-// added by me
-// explicit VarState() = default;
-// VarState(const VarState& v)
-//{// copy constructor
-//  this->shared_vc = v.shared_vc;
-//  this->w_id = v.w_id;
-//  this->r_id = v.r_id;
-//}
-// VarState(VarState&& v)
-//{// move constructor
-//  this->shared_vc = v.shared_vc;
-//  this->w_id = v.w_id;
-//  this->r_id = v.r_id;
-//}
-// VarState& operator=(const VarState& other)
-//{// copy assignment operator
-//  this->shared_vc = other.shared_vc;
-//  this->w_id = other.w_id;
-//  this->r_id = other.r_id;
-//  return *this;
-//}
-// VarState& operator=(VarState&& other)
-//{// move assignment operator
-//  this->shared_vc = other.shared_vc;
-//  this->w_id = other.w_id;
-//  this->r_id = other.r_id;
-//  return *this;
-//}
-//----------------------------------------------------------------------------------------------

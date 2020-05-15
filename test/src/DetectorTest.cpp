@@ -20,7 +20,7 @@
 #include <thread>
 
 std::unordered_map<std::string, std::shared_ptr<util::LibraryLoader>>
-DetectorTest::_libs;
+    DetectorTest::_libs;
 std::unordered_map<std::string, Detector*> DetectorTest::_detectors;
 
 TEST_P(DetectorTest, Mutex) {
@@ -119,8 +119,6 @@ TEST_P(DetectorTest, RW_Race) {
   EXPECT_EQ(num_races, 1);
 }
 
-
-
 TEST_P(DetectorTest, VarLength) {
   Detector::tls_t tls22;
   Detector::tls_t tls23;
@@ -151,8 +149,7 @@ TEST_P(DetectorTest, ThreadExit) {
 
   if (std::string(detector->name()) != "FASTTRACK") {
     EXPECT_EQ(num_races, 0);
-  }
-  else {
+  } else {
     // fasttrack is detecting a race here
     // because the two child threads write unsynchronised to the same var
     EXPECT_EQ(num_races, 1);
@@ -197,8 +194,7 @@ TEST_P(DetectorTest, ForkInitialize) {
 
   if (std::string(detector->name()) != "FASTTRACK") {
     EXPECT_EQ(num_races, 0);
-  }
-  else {
+  } else {
     // fasttrack is detecting a race here
     // because the two child threads write unsynchronised to the same var
     EXPECT_EQ(num_races, 1);
@@ -261,8 +257,8 @@ TEST_P(DetectorTest, ResetRange) {
   EXPECT_EQ(num_races, 0);
 }
 
-void callstack_funA() {};
-void callstack_funB() {};
+void callstack_funA(){};
+void callstack_funB(){};
 
 TEST_P(DetectorTest, RaceInspection) {
   Detector::tls_t tls90, tls91;
@@ -291,11 +287,11 @@ TEST_P(DetectorTest, RaceInspection) {
   // races are not ordered, but we need an order for
   // the assertions. Hence, order by tid.
   auto a1 = last_race.first.thread_id < last_race.second.thread_id
-    ? last_race.first
-    : last_race.second;
+                ? last_race.first
+                : last_race.second;
   auto a2 = last_race.first.thread_id < last_race.second.thread_id
-    ? last_race.second
-    : last_race.first;
+                ? last_race.second
+                : last_race.first;
 
   EXPECT_NE(a1.thread_id, a2.thread_id);
   EXPECT_EQ(a1.thread_id, 90);
@@ -394,8 +390,7 @@ void dummy_func() {}
 
 /// This is just a smoke test to check if the detectors
 /// do not crash (or deadlock) when accessed concurrently
-TEST_P(DetectorTest, Parallelism)
-{
+TEST_P(DetectorTest, Parallelism) {
 #ifdef DEBUG
   constexpr size_t size = 4096;
 #else
@@ -404,7 +399,7 @@ TEST_P(DetectorTest, Parallelism)
   constexpr int num_threads = 4;
 
   std::mutex mx;
-  std::atomic<bool> ready{ false };
+  std::atomic<bool> ready{false};
 
   auto do_work = [&](int id, Detector::tls_t tls) {
     int dummy;
@@ -442,8 +437,7 @@ TEST_P(DetectorTest, Parallelism)
       if (dist_case(gen) < 20) {
         // 20% writes
         detector->write(tls, (void*)(fake_pc), (void*)data, 8);
-      }
-      else {
+      } else {
         // 80% reads
         detector->read(tls, (void*)(fake_pc), (void*)data, 8);
       }
@@ -477,8 +471,8 @@ TEST_P(DetectorTest, Parallelism)
 // Setup value-parameterized tests
 #ifdef WIN32
 INSTANTIATE_TEST_SUITE_P(Interface, DetectorTest,
-  ::testing::Values("fasttrack.standalone")); //, "tsan"
+                         ::testing::Values("fasttrack.standalone"));  //, "tsan"
 #else
 INSTANTIATE_TEST_SUITE_P(Interface, DetectorTest,
-  ::testing::Values("fasttrack.standalone"));
+                         ::testing::Values("fasttrack.standalone"));
 #endif

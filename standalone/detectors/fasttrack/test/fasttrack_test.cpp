@@ -56,24 +56,14 @@ TEST(FasttrackTest, IndicateRaces3) {
   auto t3 = std::make_shared<ThreadState>(3);
 
   auto v1 = std::make_shared<VarState>(1);
-
-  // ThreadState* t1 = new ThreadState(1);
-  // ThreadState* t2 = new ThreadState(2);
-  // ThreadState* t3 = new ThreadState(3);
-
-  // VarState* v1 = new VarState(1);
-
   std::size_t addr = 0x4EA3ull;
   using namespace drace::detector;
   auto ft = std::make_unique<Fasttrack<std::mutex>>();
   // t1 and t2 read v1
   ft->read(t1.get(), v1.get(), addr);
   ft->read(t2.get(), v1.get(), addr);
-  //ft->write(t2.get(), v1.get(), addr); //should be false after this
+  // ft->write(t2.get(), v1.get(), addr); //should be false after this
 
-      // v1->update(false, t1->return_own_id());
-      // v1->set_read_shared(t2->return_own_id());
-      //
   xvector<VectorClock<>::VC_ID>* shared_vc;
   auto it = ft->shared_vcs.find(addr);
   if (it != ft->shared_vcs.end()) {  // if it exists get a pointer to the vector
@@ -86,15 +76,6 @@ TEST(FasttrackTest, IndicateRaces3) {
   ASSERT_FALSE(v1->is_rw_ex_race(t3.get()));
   ASSERT_FALSE(v1->is_ww_race(t3.get()));
   ASSERT_TRUE(v1->is_rw_sh_race(t3.get(), shared_vc));
-  //
-  //  // t1 and t2 read v1
-  //  update_VarState(false, t1->return_own_id(), v1);
-  //  set_read_shared(t2->return_own_id(), v1, addr);
-  //
-  //  ASSERT_FALSE(v1->is_wr_race(t3.get()));
-  //  ASSERT_FALSE(v1->is_rw_ex_race(t3.get()));
-  //  ASSERT_FALSE(v1->is_ww_race(t3.get()));
-  //  ASSERT_TRUE(v1->is_rw_sh_race(t3.get()));
 }
 
 TEST(FasttrackTest, ItemNotFoundInTrace) {
@@ -211,22 +192,3 @@ TEST(FasttrackTest, FullFtSimpleRace) {
   ft->finalize();
   __debugbreak();
 }
-
-// TEST(FasttrackTest, IndicateRaces3) {
-//  auto t1 = std::make_shared<ThreadState>(1);
-//  auto t2 = std::make_shared<ThreadState>(2);
-//  auto t3 = std::make_shared<ThreadState>(3);
-//
-//  auto v1 = std::make_shared<VarState>(1);
-//
-//  v1->update(false, t1->return_own_id());
-//  v1->set_read_shared(t2->return_own_id());
-//  // t1 and t2 read v1
-//  update_VarState(false, t1->return_own_id(), v1);
-//  set_read_shared(t2->return_own_id(), v1, addr);
-//
-//  ASSERT_FALSE(v1->is_wr_race(t3.get()));
-//  ASSERT_FALSE(v1->is_rw_ex_race(t3.get()));
-//  ASSERT_FALSE(v1->is_ww_race(t3.get()));
-//  ASSERT_TRUE(v1->is_rw_sh_race(t3.get()));
-//}
