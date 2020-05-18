@@ -131,7 +131,7 @@ class Fasttrack : public Detector {
    *                  threads
    */
   void report_race(uint32_t thr1, uint32_t thr2, bool wr1, bool wr2,
-                   const VarState& var, size_t address) const {
+                   const VarState& var, size_t address, std::size_t size) const {
     auto it = threads.find(thr1);
     auto it2 = threads.find(thr2);
     auto it_end = threads.end();
@@ -157,7 +157,7 @@ class Fasttrack : public Detector {
     access1.thread_id = thr1;
     access1.write = wr1;
     access1.accessed_memory = address;
-    access1.access_size = var.size;
+    access1.access_size = size;
     access1.access_type = 0;
     access1.heap_block_begin = 0;
     access1.heap_block_size = 0;
@@ -169,7 +169,7 @@ class Fasttrack : public Detector {
     access2.thread_id = thr2;
     access2.write = wr2;
     access2.accessed_memory = address;
-    access2.access_size = var.size;
+    access2.access_size = size;
     access2.access_type = 0;
     access2.heap_block_begin = 0;
     access2.heap_block_size = 0;
@@ -188,9 +188,9 @@ class Fasttrack : public Detector {
    * \brief Wrapper for report_race to use const qualifier on wrapped function
    */
   void report_race_locked(uint32_t thr1, uint32_t thr2, bool wr1, bool wr2,
-                          const VarState& var, size_t addr) {
+                          const VarState& var, std::size_t addr, std::size_t size) {
     std::lock_guard<LockT> lg(g_lock);
-    report_race(thr1, thr2, wr1, wr2, var, addr);
+    report_race(thr1, thr2, wr1, wr2, var, addr, size);
   }
 
   /// updates the var state because of a new read or write access through a
@@ -236,7 +236,7 @@ class Fasttrack : public Detector {
    * \brief takes care of a read access
    * \note works only on calling-thread and var object, not on any list
    */
-  void read(ThreadState* t, VarState* v, std::size_t addr) {
+  void read(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
     if (t->return_own_id() ==
         v->get_read_id()) {  // read same epoch, same thread;
       if (log_flag) {
@@ -267,7 +267,7 @@ class Fasttrack : public Detector {
     }
 
     if (v->is_wr_race(t)) {  // write-read race
-      report_race_locked(v->get_w_tid(), t->get_tid(), true, false, *v, addr);
+      report_race_locked(v->get_w_tid(), t->get_tid(), true, false, *v, addr, size);
     }
 
     // update vc
@@ -298,7 +298,7 @@ class Fasttrack : public Detector {
    * \brief takes care of a write access
    * \note works only on calling-thread and var object, not on any list
    */
-  void write(ThreadState* t, VarState* v, size_t addr) {
+  void write(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
     if (t->return_own_id() == v->get_write_id()) {  // write same epoch
       if (log_flag) {
         log_count.write_same_epoch++;
@@ -330,7 +330,7 @@ class Fasttrack : public Detector {
     // tids are different and write epoch greater or
     // equal than known epoch of other thread
     if (v->is_ww_race(t)) {  // write-write race
-      report_race_locked(v->get_w_tid(), tid, true, true, *v, addr);
+      report_race_locked(v->get_w_tid(), tid, true, true, *v, addr, size);
     }
 
     if (shared_vc == nullptr) {  //! v->is_read_shared()
@@ -338,7 +338,7 @@ class Fasttrack : public Detector {
         log_count.write_exclusive++;
       }
       if (v->is_rw_ex_race(t)) {  // read-write race
-        report_race_locked(v->get_r_tid(), tid, false, true, *v, addr);
+        report_race_locked(v->get_r_tid(), tid, false, true, *v, addr, size);
       }
     } else {  // come here in read shared case
       if (log_flag) {
@@ -348,7 +348,7 @@ class Fasttrack : public Detector {
       if (act_th_num != 0)  // we return 0 & we start counting Thread_Num from 1
       {                     // read shared read-write race
         report_race_locked(VectorClock<>::make_tid_from_th_num(act_th_num), tid,
-                           false, true, *v, addr);
+                           false, true, *v, addr, size);
       }
     }
     update_VarState(true, t->return_own_id(), v, it);
@@ -358,8 +358,8 @@ class Fasttrack : public Detector {
    * \brief creates a new variable object (is called, when var is read or
    * written for the first time) \note Invariant: vars table is locked
    */
-  inline auto create_var(size_t addr, size_t size) {
-    return vars.emplace(addr, static_cast<uint16_t>(size)).first;
+  inline auto create_var(size_t addr) {
+    return vars.emplace(addr, VarState()).first; //, static_cast<uint16_t>(size)
   }
 
   /// creates a new lock object (is called when a lock is acquired or released
@@ -533,16 +533,16 @@ class Fasttrack : public Detector {
           std::cout << "variable is read before written"
                     << std::endl;  // warning
 #endif
-          it = create_var((size_t)(addr), size);
+          it = create_var((size_t)(addr));
         }
         var = &(it->second);  // first copy
       }
 #if PROF_INFO
       // deb(vars.capacity());
-      // deb(sizeof(*var));
+       //deb(sizeof(*var));
       // std::cout << std::endl;
 #endif
-      read(thr, var, (size_t)addr);
+      read(thr, var, (size_t)addr, size);
     }
   }
 
@@ -560,11 +560,11 @@ class Fasttrack : public Detector {
         std::lock_guard<ipc::spinlock> exLockT(vars_spl);
         auto it = vars.find((size_t)addr);
         if (it == vars.end()) {
-          it = create_var((size_t)(addr), size);
+          it = create_var((size_t)(addr));
         }
         var = &(it->second);
       }
-      write(thr, var, (size_t)addr);
+      write(thr, var, (size_t)addr, size);
     }
   }
 

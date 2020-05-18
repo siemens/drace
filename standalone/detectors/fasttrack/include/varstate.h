@@ -27,14 +27,16 @@ class VarState {
 
   /// local clock of last read
   VectorClock<>::VC_ID w_id{VAR_NOT_INIT};
-  // these are th_num (first 10 bits) + epochss
+  // these are th_num (first 10 bits) + epochs
 
   /// local clock of last read
   VectorClock<>::VC_ID r_id{VAR_NOT_INIT};  // now they should be 32 bits
 
-  const uint16_t size;  // TODO: make size smaller
+  //const uint16_t size;  // TODO: make size smaller
 
-  explicit inline VarState(uint16_t var_size) : size(var_size) {}
+  VarState() = default;
+
+  //explicit inline VarState(uint16_t var_size) : size(var_size) {}
 
   /// returns id of last write access
   inline VectorClock<>::VC_ID get_write_id() const { return w_id; }
