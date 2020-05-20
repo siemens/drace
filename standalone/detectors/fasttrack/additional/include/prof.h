@@ -1,6 +1,4 @@
-#include <fasttrack.h>
 #include <chrono>
-
 
 class ProfTimer {
  public:

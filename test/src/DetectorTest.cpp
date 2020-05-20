@@ -12,37 +12,9 @@
 #include "detectorTest.h"
 #include "gtest/gtest.h"
 
-#include <algorithm>
-#include <array>
-#include <atomic>
-#include <mutex>
-#include <random>
-#include <thread>
-
 std::unordered_map<std::string, std::shared_ptr<util::LibraryLoader>>
     DetectorTest::_libs;
 std::unordered_map<std::string, Detector*> DetectorTest::_detectors;
-
-TEST_P(DetectorTest, Mutex) {
-  Detector::tls_t tls20;
-  Detector::tls_t tls21;
-
-  detector->fork(1, 20, &tls20);
-  detector->fork(1, 21, &tls21);
-  // First Thread
-  detector->acquire(tls20, (void*)0x01000000, 1, true);
-  detector->write(tls20, (void*)0x0021, (void*)0x00200000, 8);
-  detector->read(tls20, (void*)0x0022, (void*)0x00200000, 8);
-  detector->release(tls20, (void*)0x01000000, true);
-
-  // Second Thread
-  detector->acquire(tls21, (void*)0x01000000, 1, true);
-  detector->read(tls21, (void*)0x0024, (void*)0x00200000, 8);
-  detector->write(tls21, (void*)0x0025, (void*)0x00200000, 8);
-  detector->release(tls21, (void*)0x01000000, true);
-
-  EXPECT_EQ(num_races, 0);
-}
 
 TEST_P(DetectorTest, WR_Race) {
   Detector::tls_t tls10;
@@ -117,6 +89,27 @@ TEST_P(DetectorTest, RW_Race) {
 
   detector->write(tls18, (void*)0x0010, (void*)0x00130000, 8);
   EXPECT_EQ(num_races, 1);
+}
+
+TEST_P(DetectorTest, Mutex) {
+  Detector::tls_t tls20;
+  Detector::tls_t tls21;
+
+  detector->fork(1, 20, &tls20);
+  detector->fork(1, 21, &tls21);
+  // First Thread
+  detector->acquire(tls20, (void*)0x01000000, 1, true);
+  detector->write(tls20, (void*)0x0021, (void*)0x00200000, 8);
+  detector->read(tls20, (void*)0x0022, (void*)0x00200000, 8);
+  detector->release(tls20, (void*)0x01000000, true);
+
+  // Second Thread
+  detector->acquire(tls21, (void*)0x01000000, 1, true);
+  detector->read(tls21, (void*)0x0024, (void*)0x00200000, 8);
+  detector->write(tls21, (void*)0x0025, (void*)0x00200000, 8);
+  detector->release(tls21, (void*)0x01000000, true);
+
+  EXPECT_EQ(num_races, 0);
 }
 
 TEST_P(DetectorTest, VarLength) {
@@ -374,104 +367,21 @@ TEST_P(DetectorTest, HA_before_HB) {
 // TODO: i#11
 #if 0
 TEST_F(DetectorTest, ShadowMemory) {
-  detector->tls_t tls100;
-  detector->fork(1, 100, &tls100);
+    detector->tls_t tls100;
+    detector->fork(1, 100, &tls100);
 
-  // DLLs are loaded at 07ff8 xxxx xxxx most times
-  uintptr_t shadow_beg = 0x7ff7'0000'0000ull;
+    // DLLs are loaded at 07ff8 xxxx xxxx most times
+    uintptr_t shadow_beg = 0x7ff7'0000'0000ull;
 
-  detector->map_shadow((void*)(shadow_beg), (size_t)(0xFFFF'FFFF - 4096));
-  detector->write(tls100, (void*)0x0100, (void*)(shadow_beg + 0xF), 8);
+    detector->map_shadow((void*)(shadow_beg), (size_t)(0xFFFF'FFFF - 4096));
+    detector->write(tls100, (void*)0x0100, (void*)(shadow_beg + 0xF), 8);
 }
 #endif
-
-/// just to get a realistic address
-void dummy_func() {}
-
-/// This is just a smoke test to check if the detectors
-/// do not crash (or deadlock) when accessed concurrently
-TEST_P(DetectorTest, Parallelism) {
-#ifdef DEBUG
-  constexpr size_t size = 4096;
-#else
-  constexpr size_t size = 4096 * 4;
-#endif
-  constexpr int num_threads = 4;
-
-  std::mutex mx;
-  std::atomic<bool> ready{false};
-
-  auto do_work = [&](int id, Detector::tls_t tls) {
-    int dummy;
-    auto gen = std::mt19937(42 + id);
-    auto dist_data = std::uniform_int_distribution<size_t>(0ull, size - 1);
-    auto dist_case = std::uniform_int_distribution<int>(0ull, 100);
-    uint64_t exec_base = (uint64_t)dummy_func;
-    uint64_t data_base = (uint64_t)&dummy;
-
-    // wait until all threads are created
-    while (!ready.load(std::memory_order_relaxed)) {
-      std::this_thread::yield();
-    }
-
-    for (size_t i = 0; i < size; ++i) {
-      // std::cout << "Thread " << id << " Round " << i << std::endl;
-      // fake data
-      uint64_t data = data_base + dist_data(gen) * 8;
-      uint64_t fake_pc = exec_base + dist_data(gen) * 8;
-      // perform the scenario sometimes under a lock
-      int scoped_lock_cond = dist_case(gen);
-      if (scoped_lock_cond < 2) {
-        // 2 % mutex ops
-        mx.lock();
-        detector->acquire(tls, &mx, 0, true);
-      }
-
-      // perform the scenario inside a "function"
-      int scoped_case = dist_case(gen);
-      if (scoped_case < 5) {
-        detector->func_enter(tls, (void*)(exec_base + i));
-      }
-
-      // input for scenario switch
-      if (dist_case(gen) < 20) {
-        // 20% writes
-        detector->write(tls, (void*)(fake_pc), (void*)data, 8);
-      } else {
-        // 80% reads
-        detector->read(tls, (void*)(fake_pc), (void*)data, 8);
-      }
-
-      if (scoped_case < 5) {
-        detector->func_exit(tls);
-      }
-
-      if (scoped_lock_cond < 2) {
-        detector->release(tls, &mx, true);
-        mx.unlock();
-      }
-    }
-  };
-
-  std::array<Detector::tls_t, num_threads> tls;
-  std::vector<std::thread> threads;
-  for (int i = 0; i < num_threads; ++i) {
-    detector->fork(1, i + 2, &(tls[i]));
-    threads.emplace_back(do_work, i, tls[i]);
-  }
-
-  ready.store(true, std::memory_order_relaxed);
-
-  for (auto& t : threads) {
-    t.join();
-  }
-  __debugbreak();
-}
 
 // Setup value-parameterized tests
 #ifdef WIN32
 INSTANTIATE_TEST_SUITE_P(Interface, DetectorTest,
-                         ::testing::Values("fasttrack.standalone"));  //, "tsan"
+                         ::testing::Values("fasttrack.standalone", "tsan"));
 #else
 INSTANTIATE_TEST_SUITE_P(Interface, DetectorTest,
                          ::testing::Values("fasttrack.standalone"));

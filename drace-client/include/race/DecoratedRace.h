@@ -23,6 +23,7 @@ class DecoratedRace {
  public:
   ResolvedAccess first;
   ResolvedAccess second;
+  symbol::SymbolLocation resolved_addr;
   std::chrono::milliseconds elapsed;
   bool is_resolved{false};
 

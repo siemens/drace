@@ -13,7 +13,11 @@
 
 #include "dr_api.h"
 
-// implement  shared_timed_mutex if
+/**
+ * \brief Mutex implementation which internally uses DynamoRIO mutexes.
+ *
+ * The class implements the \ref std::shared_timed_mutex interface
+ */
 class DrLock {
  private:
   void* this_lock;
@@ -25,6 +29,9 @@ class DrLock {
 
   inline void lock_shared() { dr_rwlock_read_lock(this_lock); }
 
+  /**
+   * \brief Not implemented
+   */
   inline bool try_lock_shared() {
     // no dynamrio api function available
     return false;

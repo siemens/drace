@@ -56,9 +56,6 @@ MemoryTracker::MemoryTracker(const std::shared_ptr<Statistics> &stats)
                 "atomic uint64 size differs from uint64 size");
 #endif
 
-  DR_ASSERT_MSG(instrum_count.is_lock_free(),
-                "type of instrum_count is not lock-free on this platform");
-
   DR_ASSERT(drreg_init(&ops) == DRREG_SUCCESS);
   page_size = dr_page_size();
 
@@ -294,8 +291,6 @@ dr_emit_flags_t MemoryTracker::event_app_analysis(void *drcontext, void *tag,
                                                   OUT void **user_data) {
   using INSTR_FLAGS = module::Metadata::INSTR_FLAGS;
 
-  if (translating) return DR_EMIT_DEFAULT;
-
   if (for_trace && params.excl_traces) {
     *user_data = (void *)INSTR_FLAGS::STACK;
     return DR_EMIT_DEFAULT;
@@ -340,8 +335,6 @@ dr_emit_flags_t MemoryTracker::event_app_analysis(void *drcontext, void *tag,
 dr_emit_flags_t MemoryTracker::event_app_instruction(
     void *drcontext, void *tag, instrlist_t *bb, instr_t *instr, bool for_trace,
     bool translating, void *user_data) {
-  if (translating) return DR_EMIT_DEFAULT;
-
   using INSTR_FLAGS = module::Metadata::INSTR_FLAGS;
   auto instrument_instr =
       (INSTR_FLAGS)(util::unsafe_ptr_cast<uintptr_t>(user_data));
@@ -356,13 +349,13 @@ dr_emit_flags_t MemoryTracker::event_app_instruction(
     // Instrument ShadowStack TODO: This sometimes crashes in Dotnet modules
     if (funwrap::wrap_generic_call(drcontext, tag, bb, instr, for_trace,
                                    translating, user_data))
-      return DR_EMIT_MUST_END_TRACE;
+      return DR_EMIT_DEFAULT;
   }
 
   if (!(instrument_instr & INSTR_FLAGS::MEMORY)) return DR_EMIT_DEFAULT;
-
-  if (!instr_reads_memory(instr) && !instr_writes_memory(instr))
-    return DR_EMIT_DEFAULT;
+  bool instr_reads_mem = instr_reads_memory(instr);
+  bool instr_writes_mem = instr_writes_memory(instr);
+  if (!instr_reads_mem && !instr_writes_mem) return DR_EMIT_DEFAULT;
 
   if (params.excl_stack) {
     // exclude pop and push
@@ -385,29 +378,30 @@ dr_emit_flags_t MemoryTracker::event_app_instruction(
   if (instr_get_prefix_flag(instr, PREFIX_LOCK)) instr_is_atomic = true;
 
   // Sampling: Only instrument some instructions
-  // This is a racy increment, but we do not rely on exact numbers
-  auto cnt = instrum_count.fetch_add(1, std::memory_order_relaxed) + 1;
-  if (params.instr_rate == 0 || cnt % params.instr_rate != 0) {
+  if (!sample_bb(tag)) {
     return DR_EMIT_DEFAULT;
   }
 
-  if (instr_reads_memory(instr)) {
+  if (instr_reads_mem) {
     /* insert code to add an entry for each memory reference opnd */
     for (int i = 0; i < instr_num_srcs(instr); i++) {
       opnd_t src = instr_get_src(instr, i);
-      if (opnd_is_memory_reference(src))
+      if (opnd_is_memory_reference(src)) {
         instrument_mem(drcontext, bb, instr, src, false);
+      }
     }
-  } else {
+  }
+  if (instr_writes_mem) {
     for (int i = 0; i < instr_num_dsts(instr); i++) {
       opnd_t dst = instr_get_dst(instr, i);
-      if (opnd_is_memory_reference(dst))
+      if (opnd_is_memory_reference(dst)) {
         instrument_mem(drcontext, bb, instr, dst, !instr_is_atomic);
+      }
     }
   }
 
   return DR_EMIT_DEFAULT;
-}
+}  // namespace drace
 
 /* clean_call dumps the memory reference info into the analyzer */
 void MemoryTracker::process_buffer() {

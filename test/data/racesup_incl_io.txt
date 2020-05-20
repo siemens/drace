@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: MIT
+# Only for system-testing.
+# We do not suppress races on IO in this stage but instead rely on the module filter
+# Note: this does not work with tsan, as only the last 32 bit of an address are tracked.
+race_tos:std::_LaunchPad<>::_Go

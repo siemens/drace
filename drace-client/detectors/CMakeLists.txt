@@ -9,6 +9,7 @@
 # the LICENSE file in the top-level directory.
 
 add_subdirectory("dummy")
+add_subdirectory("printer")
 if(WIN32)
     add_subdirectory("tsan")
 endif()

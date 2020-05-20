@@ -165,8 +165,7 @@ int main(int argc, char** argv) {
   for (int i = 0; i < horde_size; ++i) {
     horde.push_back(std::thread(
         go_wild<decltype(BigStore), decltype(ToyStore), decltype(Market)>, i,
-        //std::ref(BigStore), std::ref(ToyStore), std::ref(Market), BUDGET));
-        BigStore, ToyStore, Market, BUDGET));
+        std::ref(BigStore), std::ref(ToyStore), std::ref(Market), BUDGET));
   }
 
   for (auto& t : horde) {

@@ -113,13 +113,12 @@ void MemoryTracker::instrument_mem_fast(void *drcontext, instrlist_t *ilist,
   instr = INSTR_CREATE_mov_st(drcontext, opnd1, opnd2);
   instrlist_meta_preinsert(ilist, where, instr);
 
-  ///* Store pc in memory ref */
+  /* Store pc in memory ref */
   pc = instr_get_app_pc(where);
-  ///* For 64-bit, we can't use a 64-bit immediate so we split pc into two
-  /// halves.
-  //* We could alternatively load it into reg1 and then store reg1.
-  //* We use a convenience routine that does the two-step store for us.
-  //*/
+  /* For 64-bit, we can't use a 64-bit immediate so we split pc into twohalves.
+   * We could alternatively load it into reg1 and then store reg1.
+   * We use a convenience routine that does the two-step store for us.
+   */
   opnd1 = OPND_CREATE_MEMPTR(reg2, offsetof(mem_ref_t, pc));
   instrlist_insert_mov_immed_ptrsz(drcontext, (ptr_int_t)pc, opnd1, ilist,
                                    where, NULL, NULL);
@@ -181,17 +180,16 @@ void MemoryTracker::instrument_mem_fast(void *drcontext, instrlist_t *ilist,
   /* jmp cc_flush */
   opnd1 = opnd_create_pc(cc_flush);
   instr = INSTR_CREATE_jmp(drcontext, opnd1);  // NOLINT opnd_t is opaque
-
   instrlist_meta_preinsert(ilist, where, instr);
 
   /* ==== .restore ==== */
   /* Restore scratch registers */
   instrlist_meta_preinsert(ilist, where, restore);
 
-  if (drreg_unreserve_register(drcontext, ilist, where, reg1) !=
+  if (drreg_unreserve_register(drcontext, ilist, where, reg3) !=
           DRREG_SUCCESS ||
-      drreg_unreserve_register(drcontext, ilist, where, reg2) !=
+      drreg_unreserve_register(drcontext, ilist, where, reg1) !=
           DRREG_SUCCESS ||
-      drreg_unreserve_register(drcontext, ilist, where, reg3) != DRREG_SUCCESS)
+      drreg_unreserve_register(drcontext, ilist, where, reg2) != DRREG_SUCCESS)
     DR_ASSERT(false);
 }

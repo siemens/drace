@@ -86,7 +86,9 @@ Tracker::PMetadata Tracker::get_module_containing(const app_pc pc) const {
 
 Tracker::PMetadata Tracker::register_module(const module_data_t *mod,
                                             bool loaded) {
-  using INSTR_FLAGS = module::Metadata::INSTR_FLAGS;
+  using module::INSTR_FLAGS;
+  using module::MOD_TYPE_FLAGS;
+
   // first check if module is already registered
   lock_read();
   auto modptr = get_module_containing(mod->start);
@@ -112,7 +114,7 @@ Tracker::PMetadata Tracker::register_module(const module_data_t *mod,
   modptr->instrument = def_instr_flags;
 
 #ifdef WINDOWS
-  if (modptr->modtype == Metadata::MANAGED && !shmdriver) {
+  if (modptr->modtype == MOD_TYPE_FLAGS::MANAGED && !shmdriver) {
     LOG_WARN(0, "managed module detected, but MSR not available");
   }
 #endif

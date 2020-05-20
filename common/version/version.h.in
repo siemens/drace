@@ -15,5 +15,5 @@
  * git tag and commit hash to the binary.
  */
 
-static const char* DRACE_BUILD_VERSION = "1.6.x (git)";
+static const char* DRACE_BUILD_VERSION = "1.7.x (git)";
 static const char* DRACE_BUILD_HASH = "@GIT_HEAD_SHA1@";

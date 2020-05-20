@@ -44,6 +44,22 @@ std::string to_iso_time(std::chrono::system_clock::time_point tp);
 
 std::string instr_flags_to_str(uint8_t flags);
 
+constexpr bool is_windows() {
+#ifdef WIN32
+  return true;
+#else
+  return false;
+#endif
+}
+
+constexpr bool is_unix() {
+#ifdef UNIX
+  return true;
+#else
+  return false;
+#endif
+}
+
 template <typename T>
 T unsafe_ptr_cast(void* ptr) {
 #pragma warning(suppress : 4302 4311)

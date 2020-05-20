@@ -47,8 +47,30 @@ class Tracker {
   /**
    * \brief Returns a shared_ptr to the module which contains the given program
    * counter. If the pc is not in a known module, returns a nullptr
+   *
+   * \note threadsafe
    */
   PMetadata get_module_containing(const app_pc pc) const;
+
+  /**
+   * \brief Registers a module and sets flags accordingly
+   *
+   * \note threadsafe
+   */
+  PMetadata register_module(const module_data_t *mod, bool loaded);
+
+ private:
+  /**
+   * \brief Creates new module in place
+   *
+   * \note not-threadsafe
+   */
+  template <class... Args>
+  inline PMetadata add_emplace(Args &&... args) {
+    PMetadata ptr = std::make_shared<Metadata>(std::forward<Args>(args)...);
+    _modules_idx.emplace(ptr->base, ptr);
+    return ptr;
+  }
 
   /// Registers a new module by moving it
   inline PMetadata add(Metadata &&mod) {
@@ -60,18 +82,6 @@ class Tracker {
     return std::make_shared<Metadata>(mod);
   }
 
-  /// Creates new module in place
-  template <class... Args>
-  inline PMetadata add_emplace(Args &&... args) {
-    PMetadata ptr = std::make_shared<Metadata>(std::forward<Args>(args)...);
-    _modules_idx.emplace(ptr->base, ptr);
-    return ptr;
-  }
-
-  /// Registers a module and sets flags accordingly
-  PMetadata register_module(const module_data_t *mod, bool loaded);
-
- private:
   /// Request a read-lock for the module dataset
   inline void lock_read() const { dr_rwlock_read_lock(mod_lock); }
 

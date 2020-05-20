@@ -75,11 +75,6 @@ class MemoryTracker {
   /// Code Caches
   app_pc cc_flush{};
 
-  /**
-   * \brief Number of instrumented calls, used for sampling
-   */
-  std::atomic<unsigned long long> instrum_count{0};
-
   /* XCX registers */
   drvector_t allowed_xcx{};
 
@@ -139,6 +134,28 @@ class MemoryTracker {
       data.sampling_pos = std::uniform_int_distribution<unsigned>{
           memory_tracker->_min_period,
           memory_tracker->_max_period}(memory_tracker->_prng);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * \brief sample the basic block specified by tag
+   *
+   * As the instrumentation has to be idempotent per BB, we sample based on it's
+   * address. To get an approximately uniform distribution, we shift the address
+   * by the width of a pointer (log2).
+   *
+   * \return true if bb should be sampled (considered)
+   */
+  inline bool sample_bb(void *tag) const {
+#ifdef COMPILE_X86
+    constexpr short shift = 2;
+#else
+    constexpr short shift = 3;
+#endif
+    if (params.instr_rate != 0 &&
+        ((uintptr_t)(tag) >> shift) % params.instr_rate == 0) {
       return true;
     }
     return false;
@@ -241,6 +258,13 @@ static inline dr_emit_flags_t instr_event_app_analysis(
                                             translating, user_data);
 }
 
+/**
+ * \brief add the inline assembly instrumentation
+ *
+ * \note various limitations apply in what is allowed and what not.
+ * For instance, the function has to be idempotent and behave similar for
+ * both translation and instr. phase.
+ */
 static inline dr_emit_flags_t instr_event_app_instruction(
     void *drcontext, void *tag, instrlist_t *bb, instr_t *instr, bool for_trace,
     bool translating, void *user_data) {

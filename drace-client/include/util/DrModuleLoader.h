@@ -1,3 +1,4 @@
+#pragma once
 /*
  * DRace, a dynamic data race detector
  *
@@ -22,15 +23,15 @@ class DrModuleLoader : public ::util::LibraryLoader {
 
   explicit DrModuleLoader(const char* filename) { _load(filename); }
 
-  ~DrModuleLoader() { _unload(); }
+  ~DrModuleLoader() final { _unload(); }
 
-  bool load(const char* filename) override { return _load(filename); }
+  bool load(const char* filename) final { return _load(filename); }
 
-  bool unload() override { return _unload(); }
+  bool unload() final { return _unload(); }
 
-  bool loaded() override { return _lib != nullptr; }
+  bool loaded() final { return _lib != nullptr; }
 
-  ::util::ProcedurePtr operator[](const char* proc_name) const override {
+  ::util::ProcedurePtr operator[](const char* proc_name) const final {
     return ::util::ProcedurePtr(reinterpret_cast<void*>(
         dr_lookup_aux_library_routine(_lib, proc_name)));
   }

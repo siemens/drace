@@ -52,7 +52,7 @@ TEST_P(DR, Atomics) { run(GetParam(), "gp-atomics", 0, 0); }
 //}
 TEST_P(DR, Annotations) { run(GetParam(), "gp-annotations", 0, 0); }
 TEST_P(DR, DisabledAnnotations) {
-  run(GetParam(), "gp-annotations-racy", 1, 10);
+  run(GetParam(), "gp-annotations-racy", 1, 20);
 }
 
 // Individual tests
@@ -71,6 +71,21 @@ TEST_P(DR, ExclStack) {
 TEST_P(DR, ExcludeRaces) {
   run(std::string(GetParam()) + " -c bin/data/drace_excl.ini",
       "gp-concurrent-inc", 0, 0);
+}
+
+TEST_P(DR, FaultInApp) { run(GetParam(), "gp-segfault", 0, 0); }
+
+/// Make sure, the tutorial works as expected
+TEST_P(DR, HowToTask) { run(GetParam(), "shoppingrush", 1, 10); }
+TEST_P(DR, HowToSolution) { run(GetParam(), "shoppingrush-sol", 0, 0); }
+
+TEST_P(DR, NoIoRaces) {
+  // this test only works with Fasttrack due to the 32 bit
+  // addr analysis of tsan
+  if (std::string(GetParam()).compare("fasttrack") == 0) {
+    run(std::string(GetParam()) + " --sup-races bin/data/racesup_incl_io.txt",
+        "shoppingrush-sol", 0, 0);
+  }
 }
 
 #ifdef DRACE_TESTING_DOTNET
@@ -135,7 +150,7 @@ TEST_P(DR, ReportXML) {
     ASSERT_TRUE(frame);
     const auto* offset = frame->FirstChildElement("offset");
     ASSERT_TRUE(offset);
-    EXPECT_EQ(offset->UnsignedText(), 0u);
+    EXPECT_LE(offset->UnsignedText(), 20u);
   }
   std::remove(filename.c_str());
 }
@@ -162,7 +177,7 @@ TEST_P(DR, ReportText) {
 // Setup value-parameterized tests
 #if WINDOWS
 INSTANTIATE_TEST_SUITE_P(Integration, DR,
-                         ::testing::Values("-d fasttrack", "-d tsan"));
+                         ::testing::Values("fasttrack", "tsan"));
 #else
-INSTANTIATE_TEST_SUITE_P(Integration, DR, ::testing::Values("-d fasttrack"));
+INSTANTIATE_TEST_SUITE_P(Integration, DR, ::testing::Values("fasttrack"));
 #endif

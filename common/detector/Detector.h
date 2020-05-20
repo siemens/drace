@@ -70,7 +70,12 @@ class Detector {
   /**
    * \brief signature of the callback function
    *
-   * The callback is executed on each detected race
+   * The callback is executed on each detected race.
+   * If the same race happens multiple times, the detector might (but does not
+   * have to) suppress subsequent ones.
+   *
+   * \note When using the DRace runtime, further filtering is done in the \ref
+   * drace::RaceCollector.
    */
   using Callback = void (*)(const Race*);
 

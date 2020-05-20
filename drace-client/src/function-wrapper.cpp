@@ -252,6 +252,9 @@ void funwrap::wrap_annotations(const module_data_t *mod) {
                  Method::EXPORTS, event::begin_excl, NULL);
   wrap_functions(mod, config.get_multi("functions", "exclude_leave"), false,
                  Method::EXPORTS, NULL, event::end_excl);
+  // wrap supressions
+  wrap_functions(mod, config.get_multi("functions", "exclude_argaddr"), false,
+                 Method::EXPORTS, event::suppr_addr, NULL);
 }
 
 bool funwrap::wrap_generic_call(void *drcontext, void *tag, instrlist_t *bb,

@@ -26,6 +26,7 @@ RaceCollector* RaceCollector::_instance;
 
 void RaceCollector::add_race(const Detector::Race* r) {
   if (num_races() > MAX) return;
+  DR_ASSERT(nullptr != r);
 
 #ifdef WINDOWS
   auto ttr = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -38,7 +39,7 @@ void RaceCollector::add_race(const Detector::Race* r) {
 
   std::lock_guard<DrLock> lock(_races_lock);
 
-  if (!filter_duplicates(r) && !filter_excluded(r)) {
+  if (!filter_duplicates(r) && !_filter->check_implausible(r)) {
     DR_ASSERT(r->first.stack_size > 0);
     DR_ASSERT(r->second.stack_size > 0);
 
@@ -84,17 +85,6 @@ void RaceCollector::race_collector_add_race(const Detector::Race* r) {
   }
 }
 
-bool RaceCollector::filter_excluded(const Detector::Race* r) {
-  DR_ASSERT(r != nullptr);
-  if (r->first.stack_size == 0 || r->second.stack_size == 0) return false;
-
-  // PC is null
-  if (r->first.stack_trace[r->first.stack_size - 1] == 0x0) return true;
-  if (r->second.stack_trace[r->second.stack_size - 1] == 0x0) return true;
-
-  return false;
-}
-
 bool RaceCollector::filter_duplicates(const Detector::Race* r) {
   // TODO: add more precise control over suppressions
   if (params.suppression_level == 0) return false;
@@ -122,6 +112,16 @@ void RaceCollector::resolve_symbols(race::ResolvedAccess& ra) {
             mc.flags = DR_MC_ALL;
             dr_get_mcontext(drcontext, &mc);
 #endif
+}
+
+void RaceCollector::resolve_race(race::DecoratedRace& race) {
+  if (!race.is_resolved) {
+    race.resolved_addr =
+        _syms->get_symbol_info((app_pc)race.first.accessed_memory);
+    resolve_symbols(race.first);
+    resolve_symbols(race.second);
+  }
+  race.is_resolved = true;
 }
 
 }  // namespace drace

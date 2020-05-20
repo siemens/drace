@@ -50,7 +50,7 @@
 #include <clipp.h>
 #include <detector/Detector.h>
 
-std::unique_ptr<drace::util::DrModuleLoader> detector_loader;
+std::unique_ptr<::util::LibraryLoader> detector_loader;
 std::shared_ptr<drace::DrFile> log_file;
 // Start time of the application
 std::chrono::system_clock::time_point app_start;
@@ -142,19 +142,28 @@ namespace drace {
 
 static void register_detector(int argc, const char **argv,
                               const std::string &detector_name) {
+  decltype(CreateDetector) *create_detector = nullptr;
   std::string detector_lib(::util::LibLoaderFactory::getModulePrefix() +
                            "drace.detector." + detector_name +
                            ::util::LibLoaderFactory::getModuleExtension());
 
-  detector_loader =
-      std::make_unique<::drace::util::DrModuleLoader>(detector_lib.c_str());
-  if (!detector_loader->loaded()) {
-    LOG_ERROR(0, "could not load library %s", detector_lib.c_str());
-    dr_abort();
+  /*
+   * i#59 TSAN uses TLS which prohibits late-loading of the library.
+   * Hence, we load TSAN early, but do not initialize it except if
+   * the detector is requested (using -d tsan)
+   */
+  if (util::is_unix() || detector_name.compare("tsan") != 0) {
+    detector_loader =
+        std::make_unique<::drace::util::DrModuleLoader>(detector_lib.c_str());
+    if (!detector_loader->loaded()) {
+      LOG_ERROR(0, "could not load library %s", detector_lib.c_str());
+      dr_abort();
+    }
+    create_detector = (*detector_loader)["CreateDetector"];
+  } else {
+    // tsan is loaded during startup, hence symbol is available
+    create_detector = CreateDetector;
   }
-
-  decltype(CreateDetector) *create_detector =
-      (*detector_loader)["CreateDetector"];
 
   detector = std::unique_ptr<Detector>(create_detector());
   detector->init(argc, argv, RaceCollector::race_collector_add_race);

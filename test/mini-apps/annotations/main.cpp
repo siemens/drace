@@ -60,6 +60,7 @@ void inc(int* v) {
  */
 void spinlock(int* v) {
   static ipc::spinlock mx;
+  DRACE_EXCLUDE_STRUCT(mx);
 
   for (int i = 0; i < NUM_INCREMENTS; ++i) {
     // we expect races on the spinlock itself,

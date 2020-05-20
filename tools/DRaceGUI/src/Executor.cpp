@@ -29,7 +29,7 @@ bool Executor::exe_drrun(QString cmd, QObject* parent) {
     if (proc_ovpn->waitForFinished()) {
       QString str(proc_ovpn->readAllStandardOutput());
 
-      if (str.contains("drrun version 7.", Qt::CaseInsensitive)) {
+      if (str.contains("drrun version 8.", Qt::CaseInsensitive)) {
         return true;
       }
     }

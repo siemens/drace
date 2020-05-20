@@ -12,28 +12,17 @@
 
 #include <dr_api.h>
 #include "../globals.h"
+#include "InstrFlags.h"
+#include "ModTypeFlags.h"
 
 namespace drace {
 namespace module {
 /// Encapsulates and enriches a dynamorio module_data_t struct
 class Metadata {
  public:
-  /// Flags describing characteristics of a module
-  enum MOD_TYPE_FLAGS : uint8_t {
-    /// no information available
-    UNKNOWN = 0x0,
-    /// native module
-    NATIVE = 0x1,
-    /// managed module
-    MANAGED = 0x2,
-    /// this (managed module) contains sync mechanisms
-    SYNC = 0x4 | MANAGED
-  };
+  using INSTR_FLAGS = drace::module::INSTR_FLAGS;
+  using MOD_TYPE_FLAGS = drace::module::MOD_TYPE_FLAGS;
 
-  /// Instrumentation Level Flags
-  enum INSTR_FLAGS : uint8_t { NONE = 0, SYMBOLS = 1, MEMORY = 2, STACK = 4 };
-
- public:
   app_pc base;
   app_pc end;
   bool loaded;

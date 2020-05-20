@@ -46,7 +46,7 @@ class Integration : public ::testing::Test {
   void run(const std::string& client_args, const std::string& exe, int min,
            int max, const std::string& app_args = "") {
     std::stringstream command;
-    command << drrun << " -c " << drclient << " " << client_args << " -- "
+    command << drrun << " -c " << drclient << " -d " << client_args << " -- "
             << "bin/samples/" << exe << exe_suffix << " " << app_args << " > "
             << logfile << " 2>&1";
     if (verbose)
@@ -93,6 +93,8 @@ class Integration : public ::testing::Test {
           std::cout << "DRace crashed sporadically, probably to allocation "
                        "error. Retry "
                     << startup_retries - i - 1 << std::endl;
+          std::ofstream dst(logfile + ".retry" + std::to_string(i));
+          dst << output;
           std::this_thread::sleep_for(std::chrono::seconds(15));
         } else {
           ADD_FAILURE() << "Race-Summary not found";
@@ -107,6 +109,8 @@ class Integration : public ::testing::Test {
     for (int i = 1; i < t_argc; ++i) {
       if (i < (t_argc - 1) && strncmp(t_argv[i], "--dr", 8) == 0) {
         drrun = t_argv[i + 1];
+      } else if (i < (t_argc - 1) && strncmp(t_argv[i], "-c", 8) == 0) {
+        drclient = t_argv[i + 1];
       } else if (strncmp(t_argv[i], "-v", 4) == 0) {
         verbose = true;
       }

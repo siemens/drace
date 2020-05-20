@@ -33,10 +33,10 @@ namespace ipc {
  * \note this spinlock is cache-coherence friendly and
  *       has optimizations for hyper-threading CPUs
  */
-class spinlock{
+class spinlock {
   std::atomic<bool> _locked{false};
- public:
 
+ public:
   inline void lock() noexcept {
     for (int spin_count = 0; !try_lock(); ++spin_count) {
       if (spin_count < 16) {
@@ -64,4 +64,5 @@ class spinlock{
     _locked.store(false, std::memory_order_release);
   }
 };
+
 }  // namespace ipc

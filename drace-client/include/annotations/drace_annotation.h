@@ -36,38 +36,43 @@
 #define DRACE_ANNOTATION_EXPORT __declspec(dllexport)
 #endif
 
+#pragma optimize("", off)
 extern "C" {
 
-#pragma optimize("", off)
 DRACE_ANNOTATION_EXPORT void __drace_happens_before(void* identifier) {
   // cppcheck-suppress unreadVariable
   volatile void* noopt = identifier;
 }
-#pragma optimize("", on)
 
-#pragma optimize("", off)
 DRACE_ANNOTATION_EXPORT void __drace_happens_after(void* identifier) {
   // cppcheck-suppress unreadVariable
   volatile void* noopt = identifier;
 }
-#pragma optimize("", on)
 
-#pragma optimize("", off)
 DRACE_ANNOTATION_EXPORT void __drace_enter_exclude() {
   int var;
   // cppcheck-suppress unreadVariable
   volatile void* noopt = &var;
 }
-#pragma optimize("", on)
 
-#pragma optimize("", off)
 DRACE_ANNOTATION_EXPORT void __drace_leave_exclude() {
   int var;
   // cppcheck-suppress unreadVariable
   volatile void* noopt = &var;
 }
-#pragma optimize("", on)
+
+/**
+ * \brief exclude the address of the argument
+ *
+ * Do not show data-races which race on the provided memory location
+ */
+DRACE_ANNOTATION_EXPORT void __drace_exclude_addr(void* address,
+                                                  unsigned size) {
+  // cppcheck-suppress unreadVariable
+  volatile void* noopt = address;
 }
+}
+#pragma optimize("", on)
 
 #define DRACE_HAPPENS_BEFORE(identifier)       \
   do {                                         \
@@ -86,9 +91,22 @@ DRACE_ANNOTATION_EXPORT void __drace_leave_exclude() {
   do {                        \
     __drace_leave_exclude();  \
   } while (0)
+
+#define DRACE_EXCLUDE_ADDR(addr, size)                 \
+  do {                                                 \
+    __drace_exclude_addr((void*)addr, (unsigned)size); \
+  } while (0)
+
+#define DRACE_EXCLUDE_STRUCT(obj)          \
+  do {                                     \
+    DRACE_EXCLUDE_ADDR(&obj, sizeof(obj)); \
+  } while (0)
+
 #else
 #define DRACE_HAPPENS_BEFORE(identifier)
 #define DRACE_HAPPENS_AFTER(identifier)
 #define DRACE_ENTER_EXCLUDE()
 #define DRACE_LEAVE_EXCLUDE()
+#define DRACE_EXCLUDE_ADDR(addr, size)
+#define DRACE_EXCLUDE_STRUCT(addr)
 #endif

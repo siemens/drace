@@ -64,7 +64,7 @@ std::string to_iso_time(std::chrono::system_clock::time_point tp) {
 }
 
 std::string instr_flags_to_str(uint8_t flags) {
-  auto _flags = (module::Metadata::INSTR_FLAGS)flags;
+  auto _flags = (module::INSTR_FLAGS)flags;
   std::stringstream buffer;
   if (_flags & module::Metadata::INSTR_FLAGS::MEMORY) {
     buffer << "MEMORY ";

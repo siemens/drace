@@ -55,6 +55,8 @@ class event {
   static void dotnet_enter(void *wrapctx, void **user_data);
   static void dotnet_leave(void *wrapctx, void *user_data);
 
+  static void suppr_addr(void *wrapctx, void **user_data);
+
   // ------------
   // Mutex Events
   // ------------

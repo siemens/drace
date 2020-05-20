@@ -1,6 +1,6 @@
 {
   "name": "drace",
-  "version": "1.6.1",
+  "version": "1.7.1",
   "description": "Data-race detector for windows applications build on top of DynamoRIO",
   "directories": {
     "test": "test"

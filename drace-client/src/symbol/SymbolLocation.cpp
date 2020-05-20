@@ -24,7 +24,7 @@ std::string SymbolLocation::get_pretty() const {
   constexpr int bufsize = 512;
   char* strbuf = (char*)dr_thread_alloc(dr_get_current_drcontext(), bufsize);
 
-  dr_snprintf(strbuf, bufsize, "PC %p ", pc);
+  dr_snprintf(strbuf, bufsize, "%p ", pc);
   if (nullptr != mod_base) {
     size_t len = strlen(strbuf);
     dr_snprintf(strbuf + len, bufsize - len, "(rel: %#010x)\n",

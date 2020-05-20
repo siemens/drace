@@ -12,7 +12,7 @@ set(SOURCES
     "src/module/Tracker"
     "src/symbol/Symbols"
     "src/symbol/SymbolLocation"
-    "src/util"
+    "src/util.cpp"
     "src/InstrumentationConfig"
     "src/RuntimeConfig"
     "src/race-filter"
@@ -49,15 +49,15 @@ target_link_libraries(
 	"drace-common"   # drace and msr common libs
 	"jtilly-inih"    # ini parser
 	"hh-date"        # C++ date lib
-    "clipp"          # option parser
-    "$<$<CXX_COMPILER_ID:Clang>:atomic>"
+  "clipp"          # option parser
+  "$<$<CXX_COMPILER_ID:Clang>:atomic>"
 )
 
 # Set loglevel
 target_compile_definitions("drace-client" PRIVATE "LOGLEVEL=${DRACE_LOGLEVEL}")
 # we need a specific base addr, hence disable this warning
 if(WIN32)
-    target_link_libraries("drace-client" -ignore:4281)
+    target_link_libraries("drace-client" "drace.detector.tsan" -ignore:4281)
     target_compile_options("drace-client" PRIVATE -EHsc)
 endif()
 
