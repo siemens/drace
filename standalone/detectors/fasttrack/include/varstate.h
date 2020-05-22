@@ -24,19 +24,17 @@
 class VarState {
  public:
   static constexpr uint32_t VAR_NOT_INIT = 0;
+  static constexpr uint32_t R_ID_SHARED = -1;
 
+  //TODO: make these private and make setters & getters for it
   /// local clock of last read
   VectorClock<>::VC_ID w_id{VAR_NOT_INIT};
-  // these are th_num (first 10 bits) + epochs
+  // these are th_num (first 10 bits) + 22 bits epoch
 
   /// local clock of last read
-  VectorClock<>::VC_ID r_id{VAR_NOT_INIT};  // now they should be 32 bits
-
-  //const uint16_t size;  // TODO: make size smaller
+  VectorClock<>::VC_ID r_id{VAR_NOT_INIT};
 
   VarState() = default;
-
-  //explicit inline VarState(uint16_t var_size) : size(var_size) {}
 
   /// returns id of last write access
   inline VectorClock<>::VC_ID get_write_id() const { return w_id; }

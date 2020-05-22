@@ -65,7 +65,7 @@ std::vector<VectorClock<>::VC_ID>::iterator VarState::find_in_vec(
   auto it_end = shared_vc->end();
   for (; it != it_end; ++it) {  // made the shorter run
     if (VectorClock<>::make_th_num(*it) ==
-        th_num) {  // we run a find here at each iteration !!!!!!!
+        th_num) {
       return it;
     }
   }

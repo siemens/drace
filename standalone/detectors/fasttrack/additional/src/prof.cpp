@@ -2,6 +2,8 @@
 #include <random>
 #include <fasttrack.h>
 
+#include <unordered_map>
+
 #define deb(x) std::cout << #x << " = " << std::setw(3) << x << " "
 
 
