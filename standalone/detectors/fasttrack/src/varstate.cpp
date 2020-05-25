@@ -60,10 +60,10 @@ VectorClock<>::Thread_Num VarState::is_rw_sh_race(
 // TODO: optimize using vector instructions
 std::vector<VectorClock<>::VC_ID>::iterator VarState::find_in_vec(
     VectorClock<>::Thread_Num th_num, xvector<VectorClock<>::VC_ID>* shared_vc)
-    const {
+    {
   auto it = shared_vc->begin();
   auto it_end = shared_vc->end();
-  for (; it != it_end; ++it) {  // made the shorter run
+  for (; it != it_end; ++it) {
     if (VectorClock<>::make_th_num(*it) ==
         th_num) {
       return it;

@@ -67,8 +67,8 @@ class Fasttrack : public Detector {
   /// switch logging of read/write operations
   bool log_flag = true;
 
-  /// switch profiling of the tool ON & OFF
-  bool prof_info = false;
+  /// switch profiling of the tool ON & OFF to generate the code
+#define PROF_INFO true;
 
   /// internal statistics
   struct log_counters {
@@ -138,6 +138,68 @@ class Fasttrack : public Detector {
 
   /// spinlock to protect accesses to vars table (order: 2)
   mutable ipc::spinlock vars_spl;
+
+  /// print statistics about rule-hits
+  void process_log_output() const {
+    double read_actions, write_actions;
+    // percentages
+    double rd, wr, r_ex_se, r_sh_se, r_ex, r_share, r_shared, w_se, w_ex, w_sh;
+
+    read_actions = log_count.read_ex_same_epoch + log_count.read_sh_same_epoch +
+                   log_count.read_exclusive + log_count.read_share +
+                   log_count.read_shared;
+    write_actions = log_count.write_same_epoch + log_count.write_exclusive +
+                    log_count.write_shared;
+
+    rd = (read_actions / (read_actions + write_actions)) * 100;
+    wr = 100 - rd;
+    r_ex_se = (log_count.read_ex_same_epoch / read_actions) * 100;
+    r_sh_se = (log_count.read_sh_same_epoch / read_actions) * 100;
+    r_ex = (log_count.read_exclusive / read_actions) * 100;
+    r_share = (log_count.read_share / read_actions) * 100;
+    r_shared = (log_count.read_shared / read_actions) * 100;
+    w_se = (log_count.write_same_epoch / write_actions) * 100;
+    w_ex = (log_count.write_exclusive / write_actions) * 100;
+    w_sh = (log_count.write_shared / write_actions) * 100;
+
+    std::cout << "FASTTRACK_STATISTICS: All values are percentages!"
+              << std::endl;
+    std::cout << std::fixed << std::setprecision(2) << "Read Actions: " << rd
+              << std::endl;
+    std::cout << "Of which: " << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+              << "Read exclusive same epoch: " << r_ex_se << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+              << "Read shared same epoch: " << r_sh_se << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+              << "Read exclusive: " << r_ex << std::endl;
+    std::cout << std::fixed << std::setprecision(2) << "Read share: " << r_share
+              << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+              << "Read shared: " << r_shared << std::endl;
+    std::cout << std::endl;
+    std::cout << std::fixed << std::setprecision(2) << "Write Actions: " << wr
+              << std::endl;
+    std::cout << "Of which: " << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+              << "Write same epoch: " << w_se << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+              << "Write exclusive: " << w_ex << std::endl;
+    std::cout << std::fixed << std::setprecision(2) << "Write shared: " << w_sh
+              << std::endl;
+    std::cout << "removeUselessVarStates calls: "
+              << log_count.removeUselessVarStates_calls << std::endl;
+    std::cout << "removeRandomVarStates calls: "
+              << log_count.removeRandomVarStates_calls << std::endl;
+    std::cout << "removeVarStates calls: " << log_count.removeVarStates_calls
+              << std::endl;
+    std::cout << "no_Useful_VarStates_removed: "
+              << log_count.no_Useful_VarStates_removed << std::endl;
+    std::cout << "no_Useless_VarStates_removed: "
+              << log_count.no_Useless_VarStates_removed << std::endl;
+    std::cout << "no_Random_VarStates_removed calls: "
+              << log_count.no_Random_VarStates_removed << std::endl;
+  }
 
   /**
    * \brief report a data-race back to DRace
@@ -210,45 +272,6 @@ class Fasttrack : public Detector {
     report_race(thr1, thr2, wr1, wr2, var, addr, size);
   }
 
-  /// updates the var state because of a new read or write access through a
-  /// thread
-  template <typename T>
-  void update_VarState(bool is_write, VectorClock<>::VC_ID id, VarState* v,
-                       T shared_vcs_it) {
-    if (is_write) {  // we have to do shared_vcs.erase() here
-                     // shared_vcs_it is for sure a phmap::iterator
-      if (shared_vcs_it != shared_vcs.end()) {
-        shared_vcs.erase(shared_vcs_it);
-      }
-      v->r_id = VarState::VAR_NOT_INIT;
-      v->w_id = id;
-      return;
-    }
-    if (shared_vcs_it == shared_vcs.end()) {  // shared_vc == nullptr
-      v->r_id = id;
-      return;
-    }
-
-    xvector<VectorClock<>::VC_ID>* shared_vc = &(shared_vcs_it->second);
-    auto it = v->find_in_vec(VectorClock<>::make_tid(id), shared_vc);
-    if (it != shared_vc->end()) {
-      shared_vc->erase(it);
-    }
-    // here we add more addresses to read_shared
-    shared_vc->push_back(id);
-  }
-
-  /// sets read state of the address to shared
-  void set_read_shared(VectorClock<>::VC_ID id, VarState* v, std::size_t addr) {
-    xvector<VectorClock<>::VC_ID>* tmp;
-    // remov
-    tmp = &(shared_vcs.emplace(addr, xvector<VectorClock<>::VC_ID>(2))
-                .first->second);
-    tmp->operator[](0) = (v->r_id);
-    tmp->operator[](1) = (id);
-    v->r_id = VarState::R_ID_SHARED;
-  }
-
   /**
    * \brief takes care of a read access
    * \note works only on calling-thread and var object, not on any list
@@ -265,7 +288,6 @@ class Fasttrack : public Detector {
     VectorClock<>::VC_ID id = t->return_own_id();  // id means epoch
     VectorClock<>::Thread_Num th_num = t->get_th_num();
 
-    // TODO: maybe use shared_ptr ?
     xvector<VectorClock<>::VC_ID>* shared_vc;
     auto it = shared_vcs.find(addr);
     /// returns the vector when read is shared
@@ -313,6 +335,48 @@ class Fasttrack : public Detector {
         log_count.read_shared++;
       }
     }
+  }
+
+  /// updates the var state because of a new read or write access through a
+  /// thread
+  template <typename T>
+  void update_VarState(bool is_write, VectorClock<>::VC_ID id, VarState* v,
+                       T shared_vcs_it) {
+    if (is_write) {  // we have to do shared_vcs.erase() here
+                     // shared_vcs_it is for sure a phmap::iterator
+      if (shared_vcs_it != shared_vcs.end()) {
+        shared_vcs.erase(shared_vcs_it);
+      }
+      v->r_id = VarState::VAR_NOT_INIT;
+      v->w_id = id;
+      return;
+    }
+
+    // read, but not in shared mode
+    if (shared_vcs_it == shared_vcs.end()) {
+      v->r_id = id;
+      return;
+    }
+
+    // read in shared mode
+    xvector<VectorClock<>::VC_ID>* shared_vc = &(shared_vcs_it->second);
+    auto it = VarState::find_in_vec(VectorClock<>::make_th_num(id), shared_vc);
+    if (it != shared_vc->end()) {
+      (*it) = id;  // just update the value
+    } else {
+      // if it was not found, we add it to the read_shared vector
+      shared_vc->push_back(id);
+    }
+  }
+
+  /// sets read state of the address to shared
+  void set_read_shared(VectorClock<>::VC_ID id, VarState* v, std::size_t addr) {
+    xvector<VectorClock<>::VC_ID>* tmp;
+    tmp = &(shared_vcs.emplace(addr, xvector<VectorClock<>::VC_ID>(2))
+                .first->second);
+    tmp->operator[](0) = (v->r_id);
+    tmp->operator[](1) = (id);
+    v->r_id = VarState::R_ID_SHARED;
   }
 
   /**
@@ -424,66 +488,18 @@ class Fasttrack : public Detector {
     allocs.emplace(addr, size);
   }
 
-  /// print statistics about rule-hits
-  void process_log_output() const {
-    double read_actions, write_actions;
-    // percentages
-    double rd, wr, r_ex_se, r_sh_se, r_ex, r_share, r_shared, w_se, w_ex, w_sh;
-
-    read_actions = log_count.read_ex_same_epoch + log_count.read_sh_same_epoch +
-                   log_count.read_exclusive + log_count.read_share +
-                   log_count.read_shared;
-    write_actions = log_count.write_same_epoch + log_count.write_exclusive +
-                    log_count.write_shared;
-
-    rd = (read_actions / (read_actions + write_actions)) * 100;
-    wr = 100 - rd;
-    r_ex_se = (log_count.read_ex_same_epoch / read_actions) * 100;
-    r_sh_se = (log_count.read_sh_same_epoch / read_actions) * 100;
-    r_ex = (log_count.read_exclusive / read_actions) * 100;
-    r_share = (log_count.read_share / read_actions) * 100;
-    r_shared = (log_count.read_shared / read_actions) * 100;
-    w_se = (log_count.write_same_epoch / write_actions) * 100;
-    w_ex = (log_count.write_exclusive / write_actions) * 100;
-    w_sh = (log_count.write_shared / write_actions) * 100;
-
-    std::cout << "FASTTRACK_STATISTICS: All values are percentages!"
-              << std::endl;
-    std::cout << std::fixed << std::setprecision(2) << "Read Actions: " << rd
-              << std::endl;
-    std::cout << "Of which: " << std::endl;
-    std::cout << std::fixed << std::setprecision(2)
-              << "Read exclusive same epoch: " << r_ex_se << std::endl;
-    std::cout << std::fixed << std::setprecision(2)
-              << "Read shared same epoch: " << r_sh_se << std::endl;
-    std::cout << std::fixed << std::setprecision(2)
-              << "Read exclusive: " << r_ex << std::endl;
-    std::cout << std::fixed << std::setprecision(2) << "Read share: " << r_share
-              << std::endl;
-    std::cout << std::fixed << std::setprecision(2)
-              << "Read shared: " << r_shared << std::endl;
-    std::cout << std::endl;
-    std::cout << std::fixed << std::setprecision(2) << "Write Actions: " << wr
-              << std::endl;
-    std::cout << "Of which: " << std::endl;
-    std::cout << std::fixed << std::setprecision(2)
-              << "Write same epoch: " << w_se << std::endl;
-    std::cout << std::fixed << std::setprecision(2)
-              << "Write exclusive: " << w_ex << std::endl;
-    std::cout << std::fixed << std::setprecision(2) << "Write shared: " << w_sh
-              << std::endl;
-    std::cout << "removeUselessVarStates calls: "
-              << log_count.removeUselessVarStates_calls << std::endl;
-    std::cout << "removeRandomVarStates calls: "
-              << log_count.removeRandomVarStates_calls << std::endl;
-    std::cout << "removeVarStates calls: " << log_count.removeVarStates_calls
-              << std::endl;
-    std::cout << "no_Useful_VarStates_removed: "
-              << log_count.no_Useful_VarStates_removed << std::endl;
-    std::cout << "no_Useless_VarStates_removed: "
-              << log_count.no_Useless_VarStates_removed << std::endl;
-    std::cout << "no_Random_VarStates_removed calls: "
-              << log_count.no_Random_VarStates_removed << std::endl;
+  void parse_args(int argc, const char** argv) {
+    int processed = 1;
+    while (processed < argc) {
+      if (strcmp(argv[processed], "--stats") == 0) {
+        log_flag = true;
+      }
+      if (strcmp(argv[processed], "--size") == 0) {
+        processed++;
+        vars_size = std::stoi(argv[processed]);
+      }
+      ++processed;
+    }
   }
 
   /**
@@ -508,18 +524,6 @@ class Fasttrack : public Detector {
     }
   }
 
-  void parse_args(int argc, const char** argv) {
-    int processed = 1;
-    while (processed < argc) {
-      if (strcmp(argv[processed], "--stats") == 0) {
-        log_flag = true;
-        return;
-      } else {
-        ++processed;
-      }
-    }
-  }
-
   void removeUselessVarStates() {
     if (log_flag) {
       log_count.removeUselessVarStates_calls++;
@@ -527,22 +531,29 @@ class Fasttrack : public Detector {
 
     VectorClock<>::Clock min_th_clock = -1;
     for (auto it = threads.begin(); it != threads.end(); ++it) {
-      VectorClock<>::Clock tmp = it->second->get_clock();
+      VectorClock<>::Clock tmp = -1;
+      if (threads.size() > it->second->get_length()) {
+        tmp = 0;
+      } else {
+        tmp = it->second->get_min_clock();
+      }
       if (tmp < min_th_clock) {
         min_th_clock = tmp;
       }
     }
 
-    if (prof_info) {
-      deb(min_th_clock);
-    }
+#if PROF_INFO
+    deb(min_th_clock);
+    newline();
+#endif
 
     for (auto it = vars.begin(); it != vars.end();
          ++it) {  // this might be really slow
       if (min_th_clock > it->second.get_w_clock() &&
-          min_th_clock > it->second.get_r_clock() &&
-          it->second.r_id != VarState::R_ID_SHARED) {  // also skip variables in
-                                                       // read_shared state
+          (min_th_clock > it->second.get_r_clock() ||
+           it->second.r_id == VarState::R_ID_SHARED)) {
+        // if the VarState is in read_shared, it is actually indicated to be
+        // removed
         vars.erase(it);
 
         if (log_flag) {
@@ -550,12 +561,11 @@ class Fasttrack : public Detector {
         }
       }
     }
-
-    if (prof_info) {
-      deb(log_count.removeUselessVarStates_calls);
-      deb(log_count.no_Useless_VarStates_removed);
-      newline();
-    }
+#if PROF_INFO
+    deb(log_count.removeUselessVarStates_calls);
+    deb(log_count.no_Useless_VarStates_removed);
+    newline();
+#endif
   }
 
   void removeRandomVarStates() {
@@ -580,28 +590,25 @@ class Fasttrack : public Detector {
       pos += random;             // this is why we have the pos
       if (pos > vars.size() - 1) break;
 
-      if (prof_info) {
-        std::cout << "0x" << it->first << std::dec << ", ";
-      }
+#if PROF_INFO
+      std::cout << "0x" << it->first << std::dec << ", ";
+#endif
+      // remove the variable, we don't care if it is read_shared or not
+      vars.erase(it);
 
-      if (it->second.r_id !=
-          VarState::R_ID_SHARED) {  // skip variables in read_shared state
-        vars.erase(it);
-
-        if (log_flag) {
-          log_count.no_Random_VarStates_removed++;
-        }
+      if (log_flag) {
+        log_count.no_Random_VarStates_removed++;
       }
 
       std::advance(it, no_VarStates - random);
       pos += no_VarStates - random;
     }
 
-    if (prof_info) {
-      deb(log_count.removeRandomVarStates_calls);
-      deb(log_count.no_Random_VarStates_removed);
-      newline();
-    }
+#if PROF_INFO
+    deb(log_count.removeRandomVarStates_calls);
+    deb(log_count.no_Random_VarStates_removed);
+    newline();
+#endif
   }
 
   void removeVarStates() {
@@ -626,30 +633,26 @@ class Fasttrack : public Detector {
       if (pos == 3) {  // 5 would be way too small. e.g. 2000/10000
         pos = 0;
 
-        if (prof_info) {
-          deb(min_clock);
-          std::cout << "0x" << remove_it->first << std::dec << " ";
-        }
+#if PROF_INFO
+        deb(min_clock);
+        std::cout << "0x" << remove_it->first << std::dec << " ";
+#endif
 
-        if (remove_it->second.r_id !=
-            VarState::R_ID_SHARED) {  // skip variables in read_shared state
+        vars.erase(remove_it);
+        remove_it = it;
+        min_clock = -1;
 
-          vars.erase(remove_it);
-          remove_it = it;
-          min_clock = -1;
-
-          if (log_flag) {
-            log_count.no_Useful_VarStates_removed++;
-          }
+        if (log_flag) {
+          log_count.no_Useful_VarStates_removed++;
         }
       }
     }
 
-    if (prof_info) {
-      deb(log_count.removeVarStates_calls);
-      deb(log_count.no_Useful_VarStates_removed);
-      std::cout << std::endl;
-    }
+#if PROF_INFO
+    deb(log_count.removeVarStates_calls);
+    deb(log_count.no_Useful_VarStates_removed);
+    std::cout << std::endl;
+#endif
   }
 
  public:
@@ -677,15 +680,22 @@ class Fasttrack : public Detector {
     shared_vcs.clear();
     VectorClock<>::thread_ids.clear();
 
-    if (prof_info) {
+    if (log_flag) {
       process_log_output();
     }
   }
 
   inline std::size_t Fasttrack::hashOf(std::size_t addr) { return (addr >> 4); }
 
+  // helper funtion for a unit_test -> might have its usage later
+  void clearVarState(std::size_t addr) {
+    auto it = vars.find((size_t)(addr));
+    if (it != vars.end()) {
+      vars.erase(it);
+    }
+  }
+
   inline void clearVarStates() {
-    // static bool consider_threads = true;-> the static can't be inlined
     removeUselessVarStates();
 
     // TODO: also tweak parameters here
@@ -709,9 +719,9 @@ class Fasttrack : public Detector {
       {  // finds the VarState instance of a specific addr or creates it
         std::lock_guard<ipc::spinlock> exLockT(vars_spl);
 
-        if (vars.size() > vars_size) {  // TODO: study optimal threshold
-          clearVarStates();
-        }
+        // if (vars.size() > vars_size) {  // TODO: study optimal threshold
+        //  clearVarStates();
+        //}
 
         auto it = vars.find((size_t)(addr));
         if (it == vars.end()) {
@@ -724,12 +734,13 @@ class Fasttrack : public Detector {
         var = &(it->second);  // first copy
       }
 
-      if (prof_info) {
-        deb(vars.size());
-        deb(vars.capacity());
-        std::cout << std::endl;
-        std::cout << std::hex << "0x" << vars.begin()->first << std::endl;
-      }
+#if PROF_INFO
+      deb(vars_size);
+      deb(vars.size());
+      deb(vars.capacity());
+      std::cout << std::endl;
+      std::cout << std::hex << "0x" << vars.begin()->first << std::endl;
+#endif
 
       read(thr, var, (size_t)addr, size);
     }
@@ -748,9 +759,9 @@ class Fasttrack : public Detector {
       {  // lock to access the vars HashMap
         std::lock_guard<ipc::spinlock> exLockT(vars_spl);
 
-        if (vars.size() > vars_size) {
-          clearVarStates();
-        }
+        // if (vars.size() > vars_size) {
+        //  clearVarStates();
+        //}
 
         auto it = vars.find((size_t)addr);
         if (it == vars.end()) {
@@ -937,5 +948,7 @@ class Fasttrack : public Detector {
 };
 }  // namespace detector
 }  // namespace drace
+
+//#include "fasttrack-inl.h"
 
 #endif  // !FASTTRACK_H

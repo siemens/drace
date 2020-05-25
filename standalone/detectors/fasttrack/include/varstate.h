@@ -26,7 +26,7 @@ class VarState {
   static constexpr uint32_t VAR_NOT_INIT = 0;
   static constexpr uint32_t R_ID_SHARED = -1;
 
-  //TODO: make these private and make setters & getters for it
+  // TODO: make these private and make setters & getters for it
   /// local clock of last read
   VectorClock<>::VC_ID w_id{VAR_NOT_INIT};
   // these are th_num (first 10 bits) + 22 bits epoch
@@ -86,9 +86,11 @@ class VarState {
       ThreadState* t, xvector<VectorClock<>::VC_ID>* shared_vc) const;
 
   /// finds the entry with the th_num in the shared vectorclock
-  std::vector<VectorClock<>::VC_ID>::iterator VarState::find_in_vec(
+  static std::vector<VectorClock<>::VC_ID>::iterator VarState::find_in_vec(
       VectorClock<>::Thread_Num th_num,
-      xvector<VectorClock<>::VC_ID>* shared_vc) const;
+      xvector<VectorClock<>::VC_ID>*
+          shared_vc);  // made static as it does not depend on the VarState
+                       // instance
 
   /// if in read_shared state, then returns id of position pos in vector clock
   VectorClock<>::VC_ID VarState::get_sh_id(

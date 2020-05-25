@@ -42,6 +42,20 @@ class VectorClock {
   /// returns the no. of elements of the vector clock
   constexpr uint32_t get_length() { return vc.size(); }
 
+  Clock get_min_clock() {
+    Clock min_clock = -1;
+    auto it = this->vc.begin();
+    auto it_end = this->vc.end();
+
+    for (; it != it_end; it++) {
+      Clock tmp = make_clock(it->second);
+      if (tmp < min_clock) {
+        min_clock = tmp;
+      }
+    }
+    return min_clock;
+  }
+
   /// updates this.vc with values of other.vc, if they're larger -> one way
   /// update
   void update(VectorClock* other) {
@@ -123,7 +137,8 @@ class VectorClock {
   }
 
   static constexpr TID make_tid_from_th_num(
-      Thread_Num th_num) {  // TODO: maybe? put some checks to see it's really there
+      Thread_Num
+          th_num) {  // TODO: maybe? put some checks to see it's really there
     return static_cast<TID>(thread_ids[th_num]);
   }
 
