@@ -32,11 +32,13 @@
 Define profiling for optimization
 ---------------------------------------------------------------------
 */
+#include <chrono>
 #include <cstdlib>
 #include <iomanip>
 #include <random>
 #define deb(x) std::cout << #x << " = " << std::setw(3) << std::dec << x << " "
-#define deb4(x) std::cout << #x << " = " << std::setw(4) << x << " "
+#define deb_hex(x) \
+  std::cout << #x << " = 0x" << std::hex << remove_it->first << std::dec << " "
 #define deb12(x) std::cout << #x << " = " << std::setw(12) << x << " "
 #define newline() std::cout << std::endl
 
@@ -66,9 +68,10 @@ class Fasttrack : public Detector {
  public:
   /// switch logging of read/write operations
   bool log_flag = true;
+#define FINAL_OUTPUT true;
 
-  /// switch profiling of the tool ON & OFF to generate the code
-#define PROF_INFO true;
+  /// switch profiling of the tool ON & OFF to generate profiling code
+#define PROF_INFO false;
 
   /// internal statistics
   struct log_counters {
@@ -103,22 +106,9 @@ class Fasttrack : public Detector {
   phmap::parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_ID>>
       shared_vcs;
   std::array<ipc::spinlock, 1024> spinlocks;
-  std::size_t vars_size = 10000;
-  /*
-  ---------------------------------------------------------------------
-  TODO:
-  1. vars => use flat version of the map for memory efficiency and locality
-  2. (tried) detect movement of the flat_hash_map
+  std::size_t vars_size = 10000;  // TODO: study optimal threshold
+  VectorClock<>::Clock _last_min_th_clock = 0;
 
-  var = &(it->second); gets invalidated if the hash_map moves and we
-  send it further to read/report_race etc
-  if (mem_ref->write) { // => from memory-tracker.cpp
-      detector->write(
-          data.detector_data, reinterpret_cast<void *>(mem_ref->pc),
-          reinterpret_cast<void *>(mem_ref->addr), mem_ref->size);
-  }
-  ---------------------------------------------------------------------
-  */
   /// these maps hold the various state objects together with the identifiers
   phmap::parallel_flat_hash_map<size_t, size_t> allocs;
   // we have to use a node hash map here, as we access the nodes from multiple
@@ -524,88 +514,107 @@ class Fasttrack : public Detector {
     }
   }
 
-  void removeUselessVarStates() {
+  VectorClock<>::Clock removeUselessVarStates(
+      VectorClock<>::Clock last_min_th_clock) {
     if (log_flag) {
       log_count.removeUselessVarStates_calls++;
     }
-
+#if PROF_INFO
+    deb(log_count.removeUselessVarStates_calls);
+    if (log_count.removeUselessVarStates_calls % 10 == 0) {
+      std::this_thread::sleep_for(std::chrono::seconds(5));
+    }
+#endif
     VectorClock<>::Clock min_th_clock = -1;
-    for (auto it = threads.begin(); it != threads.end(); ++it) {
-      VectorClock<>::Clock tmp = -1;
-      if (threads.size() > it->second->get_length()) {
-        tmp = 0;
-      } else {
-        tmp = it->second->get_min_clock();
-      }
-      if (tmp < min_th_clock) {
-        min_th_clock = tmp;
+    {
+      std::lock_guard<LockT> exLockT(g_lock);
+      for (auto it = threads.begin(); it != threads.end(); ++it) {
+        VectorClock<>::Clock tmp = -1;
+        if (threads.size() > it->second->get_length()) {
+          tmp = 0;
+        } else {
+          tmp = it->second->get_min_clock();
+        }
+        if (tmp < min_th_clock) {
+          min_th_clock = tmp;
+        }
       }
     }
 
-#if PROF_INFO
-    deb(min_th_clock);
-    newline();
-#endif
+    if (min_th_clock == last_min_th_clock) return min_th_clock;
 
-    for (auto it = vars.begin(); it != vars.end();
-         ++it) {  // this might be really slow
+    auto it = vars.begin();
+    while (it != vars.end()) {  // this might be really slow
       if (min_th_clock > it->second.get_w_clock() &&
           (min_th_clock > it->second.get_r_clock() ||
            it->second.r_id == VarState::R_ID_SHARED)) {
         // if the VarState is in read_shared, it is actually indicated to be
         // removed
-        vars.erase(it);
+        auto tmp = it;
+        it++;
+        vars.erase(tmp);
 
         if (log_flag) {
           log_count.no_Useless_VarStates_removed++;
         }
+      } else {
+        it++;
       }
     }
+
+    for (auto it = vars.begin(); it != vars.end();
+         ++it) {  // this might be really slow
+    }
 #if PROF_INFO
-    deb(log_count.removeUselessVarStates_calls);
     deb(log_count.no_Useless_VarStates_removed);
     newline();
 #endif
+    return min_th_clock;
   }
 
   void removeRandomVarStates() {
     if (log_flag) {
       log_count.removeRandomVarStates_calls++;
     }
-
-    // number of VarStates to consider at once for choosing
-    uint32_t no_VarStates = 5;
-
-    std::random_device rd;
-    std::mt19937 mt(rd());
-    std::uniform_int_distribution<int> dist(0, no_VarStates);
+#if PROF_INFO
+    deb(log_count.removeRandomVarStates_calls);
+    if (log_count.removeRandomVarStates_calls % 5 == 0) {
+      std::this_thread::sleep_for(std::chrono::seconds(10));
+    }
+#endif
 
     auto it = vars.begin();
+    std::size_t no_VarStates =
+        4;  // number of VarStates to consider at once for choosing
     std::size_t pos = 0;
+    std::size_t vsize = vars.size();
 
-    while (pos < vars.size() - 1) {
-      std::size_t random = dist(mt);
+    // std::random_device rd;
+    std::mt19937 _gen{0};  // TODO: fails if I use here rd();
+    std::uniform_int_distribution<int> dist(0, no_VarStates - 1);
+
+    while (pos < vsize - 1) {
+      std::size_t random = dist(_gen);
       // TODO: needs adjustment, the threshold. might be too low
-      std::advance(it, random);  // might skip vars.end();
-      pos += random;             // this is why we have the pos
-      if (pos > vars.size() - 1) break;
+      pos += random;
+      if (pos > vsize - 1) break;
 
-#if PROF_INFO
-      std::cout << "0x" << it->first << std::dec << ", ";
-#endif
+      std::advance(it, random);  // might skip vars.end();
+                                 // this is why we have the pos
+
       // remove the variable, we don't care if it is read_shared or not
-      vars.erase(it);
+      auto random_it = it;
+      pos++;
+      if (pos <= vsize - 1) {
+        it++;
+      }
+      vars.erase(random_it);
 
       if (log_flag) {
         log_count.no_Random_VarStates_removed++;
       }
-
-      std::advance(it, no_VarStates - random);
-      pos += no_VarStates - random;
     }
-
 #if PROF_INFO
-    deb(log_count.removeRandomVarStates_calls);
     deb(log_count.no_Random_VarStates_removed);
     newline();
 #endif
@@ -615,10 +624,15 @@ class Fasttrack : public Detector {
     if (log_flag) {
       log_count.removeVarStates_calls++;
     }
+#if PROF_INFO
+    deb(log_count.removeVarStates_calls);
+    if (log_count.removeVarStates_calls % 5 == 0) {
+      std::this_thread::sleep_for(std::chrono::seconds(10));
+    }
+#endif
 
     auto it = vars.begin();
     std::size_t pos = 0;
-
     VectorClock<>::Clock min_clock = -1;
     auto remove_it = it;
 
@@ -634,10 +648,9 @@ class Fasttrack : public Detector {
         pos = 0;
 
 #if PROF_INFO
-        deb(min_clock);
-        std::cout << "0x" << remove_it->first << std::dec << " ";
+        // deb(min_clock);
+        //
 #endif
-
         vars.erase(remove_it);
         remove_it = it;
         min_clock = -1;
@@ -649,9 +662,8 @@ class Fasttrack : public Detector {
     }
 
 #if PROF_INFO
-    deb(log_count.removeVarStates_calls);
     deb(log_count.no_Useful_VarStates_removed);
-    std::cout << std::endl;
+    newline();
 #endif
   }
 
@@ -680,9 +692,9 @@ class Fasttrack : public Detector {
     shared_vcs.clear();
     VectorClock<>::thread_ids.clear();
 
-    if (log_flag) {
-      process_log_output();
-    }
+#if FINAL_OUTPUT
+    process_log_output();
+#endif
   }
 
   inline std::size_t Fasttrack::hashOf(std::size_t addr) { return (addr >> 4); }
@@ -696,9 +708,15 @@ class Fasttrack : public Detector {
   }
 
   inline void clearVarStates() {
-    removeUselessVarStates();
-
-    // TODO: also tweak parameters here
+#if PROF_INFO
+    deb(vars.size());
+    deb(vars.capacity());
+    // std::cout << std::hex << "0x" << vars.begin()->first << std::endl;
+    deb(threads.size());
+    newline();
+#endif
+    VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
+    _last_min_th_clock = tmp;
     if (vars.size() > (vars_size * 0.8f)) {
       removeRandomVarStates();
       // OR depending on the policy chosen.
@@ -719,9 +737,9 @@ class Fasttrack : public Detector {
       {  // finds the VarState instance of a specific addr or creates it
         std::lock_guard<ipc::spinlock> exLockT(vars_spl);
 
-        // if (vars.size() > vars_size) {  // TODO: study optimal threshold
-        //  clearVarStates();
-        //}
+        if (vars.size() >= vars_size) {
+          clearVarStates();
+        }
 
         auto it = vars.find((size_t)(addr));
         if (it == vars.end()) {
@@ -733,15 +751,6 @@ class Fasttrack : public Detector {
         }
         var = &(it->second);  // first copy
       }
-
-#if PROF_INFO
-      deb(vars_size);
-      deb(vars.size());
-      deb(vars.capacity());
-      std::cout << std::endl;
-      std::cout << std::hex << "0x" << vars.begin()->first << std::endl;
-#endif
-
       read(thr, var, (size_t)addr, size);
     }
   }
@@ -759,9 +768,9 @@ class Fasttrack : public Detector {
       {  // lock to access the vars HashMap
         std::lock_guard<ipc::spinlock> exLockT(vars_spl);
 
-        // if (vars.size() > vars_size) {
-        //  clearVarStates();
-        //}
+        if (vars.size() >= vars_size) {
+          clearVarStates();
+        }
 
         auto it = vars.find((size_t)addr);
         if (it == vars.end()) {
@@ -948,7 +957,4 @@ class Fasttrack : public Detector {
 };
 }  // namespace detector
 }  // namespace drace
-
-//#include "fasttrack-inl.h"
-
 #endif  // !FASTTRACK_H
