@@ -66,13 +66,19 @@ class Fasttrack : public Detector {
 #endif
 
  public:
-  /// switch logging of read/write operations
-  bool log_flag = true;
-#define FINAL_OUTPUT true;
+
 #define DELETE_POLICY true;
 
   /// switch profiling of the tool ON & OFF to generate profiling code
-#define PROF_INFO true;
+#define PROF_INFO false;
+  /// switch logging of read/write operations
+  bool log_flag = true;
+  bool final_output = (true && log_flag);
+
+  bool _flag_removeDropSubMaps = true;
+  bool _flag_removeRandomVarStates = false;
+  bool _flag_removeLowestClockVarStates = false;
+  bool _flag_removeUselessVarStates = false;
 
   /// internal statistics
   struct log_counters {
@@ -94,6 +100,8 @@ class Fasttrack : public Detector {
     std::size_t no_Useful_VarStates_removed = 0;
     std::size_t no_Useless_VarStates_removed = 0;
     std::size_t no_Random_VarStates_removed = 0;
+    std::size_t no_allocatedVarStates = 0;
+    std::size_t dropSubMap_calls = 0;
   } log_count;
 
  private:
@@ -190,6 +198,11 @@ class Fasttrack : public Detector {
               << log_count.no_Useless_VarStates_removed << std::endl;
     std::cout << "no_Random_VarStates_removed calls: "
               << log_count.no_Random_VarStates_removed << std::endl;
+    std::cout << "no_allocatedVarStates calls: "
+              << log_count.no_allocatedVarStates << std::endl;
+    std::cout << "no_allocatedVarStates calls: "
+              << log_count.dropSubMap_calls << std::endl;
+    
   }
 
   /**
@@ -436,6 +449,9 @@ class Fasttrack : public Detector {
    * written for the first time) \note Invariant: vars table is locked
    */
   inline auto create_var(size_t addr) {
+    if(log_flag){
+      log_count.no_allocatedVarStates++;
+    }
     return vars.emplace(addr, VarState())
         .first;  //, static_cast<uint16_t>(size)
   }
@@ -690,10 +706,9 @@ class Fasttrack : public Detector {
     threads.clear();
     shared_vcs.clear();
     VectorClock<>::thread_ids.clear();
-
-#if FINAL_OUTPUT
-    process_log_output();
-#endif
+    
+    if(final_output)
+      process_log_output();
   }
 
   inline std::size_t Fasttrack::hashOf(std::size_t addr) { return (addr >> 4); }
@@ -707,39 +722,67 @@ class Fasttrack : public Detector {
   }
 
   inline void clearVarStates() {
-    static uint32_t should_call = 1;
-    static uint32_t consider_useless = 1;
 #if PROF_INFO
     deb(vars.size());
     deb(vars.capacity());
     deb(_last_min_th_clock);
     // std::cout << std::hex << "0x" << vars.begin()->first << std::endl;
     deb(threads.size());
+    newline();
+#endif
+
+    if(_flag_removeUselessVarStates){
+      static uint32_t should_call = 1;
+      static uint32_t consider_useless = 1;
+      if (should_call >= consider_useless) {
+        VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
+        if(_last_min_th_clock == tmp){
+          consider_useless *= 2;
+        }
+        else{
+          _last_min_th_clock = tmp;
+          consider_useless = 1;
+        }
+        should_call = 1;
+      }
+      else{
+        should_call++;
+      }
+    }
+
+#if PROF_INFO
     deb(consider_useless);
     deb(should_call);
     newline();
 #endif
 
-    if (should_call >= consider_useless) {
-      VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
-      if(_last_min_th_clock == tmp){
-        consider_useless *= 2;
+    if(_flag_removeDropSubMaps){
+      constexpr size_t mask = 0xFull;
+      static size_t index = 0;
+      vars.dropSubMap((index & mask));
+      index++;
+      if (log_flag) {
+        log_count.dropSubMap_calls++;
       }
-      else{
-        _last_min_th_clock = tmp;
-        consider_useless = 1;
+#if PROF_INFO
+      vars.list_characteristics();
+      static int no_call = 1;
+      no_call++;
+      if (no_call % 10 == 0) {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
       }
-      should_call = 1;
-    }
-    else{
-      should_call++;
+#endif
     }
 
-    
-    if (vars.size() > (vars_size * 0.8f)) {
-      removeRandomVarStates();
-      // OR depending on the policy chosen.
-      // removeVarStates();
+    if (_flag_removeRandomVarStates || _flag_removeLowestClockVarStates) {
+      if (vars.size() > (vars_size * 0.8f)) {
+        if (_flag_removeRandomVarStates) {
+          removeRandomVarStates();
+        }
+        if (_flag_removeLowestClockVarStates) {
+          removeVarStates();
+        }
+      }
     }
   }
 
