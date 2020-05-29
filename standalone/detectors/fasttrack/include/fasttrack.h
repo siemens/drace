@@ -69,9 +69,10 @@ class Fasttrack : public Detector {
   /// switch logging of read/write operations
   bool log_flag = true;
 #define FINAL_OUTPUT true;
+#define DELETE_POLICY true;
 
   /// switch profiling of the tool ON & OFF to generate profiling code
-#define PROF_INFO false;
+#define PROF_INFO true;
 
   /// internal statistics
   struct log_counters {
@@ -107,7 +108,7 @@ class Fasttrack : public Detector {
       shared_vcs;
   std::array<ipc::spinlock, 1024> spinlocks;
   std::size_t vars_size = 10000;  // TODO: study optimal threshold
-  VectorClock<>::Clock _last_min_th_clock = 0;
+  VectorClock<>::Clock _last_min_th_clock = -1;
 
   /// these maps hold the various state objects together with the identifiers
   phmap::parallel_flat_hash_map<size_t, size_t> allocs;
@@ -522,7 +523,7 @@ class Fasttrack : public Detector {
 #if PROF_INFO
     deb(log_count.removeUselessVarStates_calls);
     if (log_count.removeUselessVarStates_calls % 10 == 0) {
-      std::this_thread::sleep_for(std::chrono::seconds(5));
+      std::this_thread::sleep_for(std::chrono::seconds(10));
     }
 #endif
     VectorClock<>::Clock min_th_clock = -1;
@@ -561,10 +562,6 @@ class Fasttrack : public Detector {
         it++;
       }
     }
-
-    for (auto it = vars.begin(); it != vars.end();
-         ++it) {  // this might be really slow
-    }
 #if PROF_INFO
     deb(log_count.no_Useless_VarStates_removed);
     newline();
@@ -584,13 +581,16 @@ class Fasttrack : public Detector {
 #endif
 
     auto it = vars.begin();
-    std::size_t no_VarStates =
-        4;  // number of VarStates to consider at once for choosing
+    // number of VarStates to consider at once for choosing
+    std::size_t no_VarStates = 4;
     std::size_t pos = 0;
     std::size_t vsize = vars.size();
 
-    // std::random_device rd;
-    std::mt19937 _gen{0};  // TODO: fails if I use here rd();
+    auto now = std::chrono::high_resolution_clock::now();
+    auto ms = std::chrono::time_point_cast<std::chrono::milliseconds>(now)
+                  .time_since_epoch()
+                  .count();
+    std::mt19937 _gen{(unsigned int)ms};  // TODO: fails if I use here rd();
     std::uniform_int_distribution<int> dist(0, no_VarStates - 1);
 
     while (pos < vsize - 1) {
@@ -649,7 +649,6 @@ class Fasttrack : public Detector {
 
 #if PROF_INFO
         // deb(min_clock);
-        //
 #endif
         vars.erase(remove_it);
         remove_it = it;
@@ -708,15 +707,35 @@ class Fasttrack : public Detector {
   }
 
   inline void clearVarStates() {
+    static uint32_t should_call = 1;
+    static uint32_t consider_useless = 1;
 #if PROF_INFO
     deb(vars.size());
     deb(vars.capacity());
+    deb(_last_min_th_clock);
     // std::cout << std::hex << "0x" << vars.begin()->first << std::endl;
     deb(threads.size());
+    deb(consider_useless);
+    deb(should_call);
     newline();
 #endif
-    VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
-    _last_min_th_clock = tmp;
+
+    if (should_call >= consider_useless) {
+      VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
+      if(_last_min_th_clock == tmp){
+        consider_useless *= 2;
+      }
+      else{
+        _last_min_th_clock = tmp;
+        consider_useless = 1;
+      }
+      should_call = 1;
+    }
+    else{
+      should_call++;
+    }
+
+    
     if (vars.size() > (vars_size * 0.8f)) {
       removeRandomVarStates();
       // OR depending on the policy chosen.
@@ -737,9 +756,11 @@ class Fasttrack : public Detector {
       {  // finds the VarState instance of a specific addr or creates it
         std::lock_guard<ipc::spinlock> exLockT(vars_spl);
 
+#if DELETE_POLICY
         if (vars.size() >= vars_size) {
           clearVarStates();
         }
+#endif
 
         auto it = vars.find((size_t)(addr));
         if (it == vars.end()) {
@@ -768,9 +789,11 @@ class Fasttrack : public Detector {
       {  // lock to access the vars HashMap
         std::lock_guard<ipc::spinlock> exLockT(vars_spl);
 
+#if DELETE_POLICY
         if (vars.size() >= vars_size) {
           clearVarStates();
         }
+#endif
 
         auto it = vars.find((size_t)addr);
         if (it == vars.end()) {

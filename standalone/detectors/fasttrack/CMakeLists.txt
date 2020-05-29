@@ -26,7 +26,6 @@ find_package(Boost 1.65.0)
 
 if(Boost_FOUND)
     message(STATUS "Build detector fasttrack (standalone)")
-    add_subdirectory("additional")
 
     add_library("drace.detector.fasttrack.generic" STATIC ${FT_SOURCES})
     set_target_properties(
@@ -78,7 +77,7 @@ if(Boost_FOUND)
 
 
     ##### add profiling stuff #####
-    #add_subdirectory("prof")
+    add_subdirectory("additional")
 
 
     ################ configure test module ################

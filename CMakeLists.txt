@@ -130,10 +130,6 @@ add_subdirectory("standalone")
 # Tutorial
 add_subdirectory("HowTo")
 
-
-add_subdirectory("helper")
-
-
 if(DRACE_ENABLE_RUNTIME)
 	# DRACE
 	add_subdirectory("drace-client")
