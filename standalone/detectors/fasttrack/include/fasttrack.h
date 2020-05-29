@@ -66,7 +66,7 @@ class Fasttrack : public Detector {
 #endif
 
  public:
-
+  // Variables to be defined via the external framework
 #define DELETE_POLICY true;
 
   /// switch profiling of the tool ON & OFF to generate profiling code
@@ -75,10 +75,11 @@ class Fasttrack : public Detector {
   bool log_flag = true;
   bool final_output = (true && log_flag);
 
+  bool _flag_removeUselessVarStates = true;
   bool _flag_removeDropSubMaps = true;
   bool _flag_removeRandomVarStates = false;
   bool _flag_removeLowestClockVarStates = false;
-  bool _flag_removeUselessVarStates = false;
+  std::size_t vars_size = 50000;  // TODO: study optimal threshold
 
   /// internal statistics
   struct log_counters {
@@ -115,7 +116,6 @@ class Fasttrack : public Detector {
   phmap::parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_ID>>
       shared_vcs;
   std::array<ipc::spinlock, 1024> spinlocks;
-  std::size_t vars_size = 10000;  // TODO: study optimal threshold
   VectorClock<>::Clock _last_min_th_clock = -1;
 
   /// these maps hold the various state objects together with the identifiers
@@ -186,6 +186,9 @@ class Fasttrack : public Detector {
               << "Write exclusive: " << w_ex << std::endl;
     std::cout << std::fixed << std::setprecision(2) << "Write shared: " << w_sh
               << std::endl;
+    std::cout << "--------------------------------------------------------"
+              << std::endl;
+    std::cout << "FASTTRACK_DETAILS: Values are absolute!" << std::endl;
     std::cout << "removeUselessVarStates calls: "
               << log_count.removeUselessVarStates_calls << std::endl;
     std::cout << "removeRandomVarStates calls: "
@@ -198,11 +201,14 @@ class Fasttrack : public Detector {
               << log_count.no_Useless_VarStates_removed << std::endl;
     std::cout << "no_Random_VarStates_removed calls: "
               << log_count.no_Random_VarStates_removed << std::endl;
-    std::cout << "no_allocatedVarStates calls: "
+    std::cout << "number of allocated VarStates: "
               << log_count.no_allocatedVarStates << std::endl;
-    std::cout << "no_allocatedVarStates calls: "
-              << log_count.dropSubMap_calls << std::endl;
-    
+    std::cout << "dropSubMap_calls calls: " << log_count.dropSubMap_calls
+              << std::endl;
+    std::cout << "wr_race: " << log_count.wr_race << std::endl;
+    std::cout << "rw_sh_race: " << log_count.rw_sh_race << std::endl;
+    std::cout << "ww_race: " << log_count.ww_race << std::endl;
+    std::cout << "rw_ex_race: " << log_count.rw_ex_race << std::endl;
   }
 
   /**
@@ -449,7 +455,7 @@ class Fasttrack : public Detector {
    * written for the first time) \note Invariant: vars table is locked
    */
   inline auto create_var(size_t addr) {
-    if(log_flag){
+    if (log_flag) {
       log_count.no_allocatedVarStates++;
     }
     return vars.emplace(addr, VarState())
@@ -706,9 +712,8 @@ class Fasttrack : public Detector {
     threads.clear();
     shared_vcs.clear();
     VectorClock<>::thread_ids.clear();
-    
-    if(final_output)
-      process_log_output();
+
+    if (final_output) process_log_output();
   }
 
   inline std::size_t Fasttrack::hashOf(std::size_t addr) { return (addr >> 4); }
@@ -722,6 +727,30 @@ class Fasttrack : public Detector {
   }
 
   inline void clearVarStates() {
+    if (_flag_removeUselessVarStates) {
+      static uint32_t should_call = 1;
+      static uint32_t consider_useless = 1;
+#if PROF_INFO
+      std::cout << "-------------clearVarStates call--------------------";
+      newline();
+      deb(consider_useless);
+      deb(should_call);
+#endif
+      if (should_call >= consider_useless) {
+        VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
+        if (_last_min_th_clock == tmp) {
+          consider_useless *= 2;
+        } else {
+          _last_min_th_clock = tmp;
+          consider_useless = 1;
+        }
+        should_call = 1;
+        return;
+      } else {
+        should_call++;
+      }
+    }
+
 #if PROF_INFO
     deb(vars.size());
     deb(vars.capacity());
@@ -731,32 +760,7 @@ class Fasttrack : public Detector {
     newline();
 #endif
 
-    if(_flag_removeUselessVarStates){
-      static uint32_t should_call = 1;
-      static uint32_t consider_useless = 1;
-      if (should_call >= consider_useless) {
-        VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
-        if(_last_min_th_clock == tmp){
-          consider_useless *= 2;
-        }
-        else{
-          _last_min_th_clock = tmp;
-          consider_useless = 1;
-        }
-        should_call = 1;
-      }
-      else{
-        should_call++;
-      }
-    }
-
-#if PROF_INFO
-    deb(consider_useless);
-    deb(should_call);
-    newline();
-#endif
-
-    if(_flag_removeDropSubMaps){
+    if (_flag_removeDropSubMaps) {
       constexpr size_t mask = 0xFull;
       static size_t index = 0;
       vars.dropSubMap((index & mask));
@@ -773,16 +777,11 @@ class Fasttrack : public Detector {
       }
 #endif
     }
-
-    if (_flag_removeRandomVarStates || _flag_removeLowestClockVarStates) {
-      if (vars.size() > (vars_size * 0.8f)) {
-        if (_flag_removeRandomVarStates) {
-          removeRandomVarStates();
-        }
-        if (_flag_removeLowestClockVarStates) {
-          removeVarStates();
-        }
-      }
+    if (_flag_removeRandomVarStates) {
+      removeRandomVarStates();
+    }
+    if (_flag_removeLowestClockVarStates) {
+      removeVarStates();
     }
   }
 
