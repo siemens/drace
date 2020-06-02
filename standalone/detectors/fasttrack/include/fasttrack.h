@@ -17,6 +17,8 @@
 #include <iostream>
 #include <mutex>  // for lock_guard
 #include <shared_mutex>
+#include <chrono>  //for profiling + seeding random generator
+#include <random> // for removeRandomVarState
 #include "parallel_hashmap/phmap.h"
 #include "stacktrace.h"
 #include "threadstate.h"
@@ -29,13 +31,9 @@
 
 /*
 ---------------------------------------------------------------------
-Define profiling for optimization
+Define for easier profiling for optimization
 ---------------------------------------------------------------------
 */
-#include <chrono>
-#include <cstdlib>
-#include <iomanip>
-#include <random>
 #define deb(x) std::cout << #x << " = " << std::setw(3) << std::dec << x << " "
 #define deb_hex(x) \
   std::cout << #x << " = 0x" << std::hex << remove_it->first << std::dec << " "
@@ -67,18 +65,17 @@ class Fasttrack : public Detector {
 
  public:
   // Variables to be defined via the external framework
-#define DELETE_POLICY true;
-
   /// switch profiling of the tool ON & OFF to generate profiling code
-#define PROF_INFO false;
+#define PROF_INFO false
   /// switch logging of read/write operations
   bool log_flag = true;
   bool final_output = (true && log_flag);
 
-  bool _flag_removeUselessVarStates = true;
-  bool _flag_removeDropSubMaps = true;
-  bool _flag_removeRandomVarStates = false;
-  bool _flag_removeLowestClockVarStates = false;
+#define DELETE_POLICY false
+  bool _flag_removeUselessVarStates = (true && DELETE_POLICY);
+  bool _flag_removeDropSubMaps = (false && DELETE_POLICY);
+  bool _flag_removeRandomVarStates = (false && DELETE_POLICY);
+  bool _flag_removeLowestClockVarStates = (false && DELETE_POLICY);
   std::size_t vars_size = 50000;  // TODO: study optimal threshold
 
   /// internal statistics
@@ -189,11 +186,14 @@ class Fasttrack : public Detector {
     std::cout << "--------------------------------------------------------"
               << std::endl;
     std::cout << "FASTTRACK_DETAILS: Values are absolute!" << std::endl;
+    std::cout << "vars_size: " << vars_size << std::endl;
     std::cout << "removeUselessVarStates calls: "
               << log_count.removeUselessVarStates_calls << std::endl;
     std::cout << "removeRandomVarStates calls: "
               << log_count.removeRandomVarStates_calls << std::endl;
     std::cout << "removeVarStates calls: " << log_count.removeVarStates_calls
+              << std::endl;
+    std::cout << "dropSubMap_calls calls: " << log_count.dropSubMap_calls
               << std::endl;
     std::cout << "no_Useful_VarStates_removed: "
               << log_count.no_Useful_VarStates_removed << std::endl;
@@ -203,8 +203,6 @@ class Fasttrack : public Detector {
               << log_count.no_Random_VarStates_removed << std::endl;
     std::cout << "number of allocated VarStates: "
               << log_count.no_allocatedVarStates << std::endl;
-    std::cout << "dropSubMap_calls calls: " << log_count.dropSubMap_calls
-              << std::endl;
     std::cout << "wr_race: " << log_count.wr_race << std::endl;
     std::cout << "rw_sh_race: " << log_count.rw_sh_race << std::endl;
     std::cout << "ww_race: " << log_count.ww_race << std::endl;
