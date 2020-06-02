@@ -71,9 +71,9 @@ class Fasttrack : public Detector {
   bool log_flag = true;
   bool final_output = (true && log_flag);
 
-#define DELETE_POLICY false
+#define DELETE_POLICY true
   bool _flag_removeUselessVarStates = (true && DELETE_POLICY);
-  bool _flag_removeDropSubMaps = (false && DELETE_POLICY);
+  bool _flag_removeDropSubMaps = (true && DELETE_POLICY);
   bool _flag_removeRandomVarStates = (false && DELETE_POLICY);
   bool _flag_removeLowestClockVarStates = (false && DELETE_POLICY);
   std::size_t vars_size = 50000;  // TODO: study optimal threshold

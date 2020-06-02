@@ -14,8 +14,7 @@
 #include <vector>
 
 template <class _Ty, class _Ax = std::allocator<_Ty>>
-class xvector : public std::vector<_Ty, _Ax>
-{
+class xvector : public std::vector<_Ty, _Ax> {
   using std::vector<_Ty, _Ax>::vector;
 };
 #endif

@@ -17,8 +17,7 @@ set(FT_TEST_SOURCES
     "test/fasttrack_test"
     "src/stacktrace"
     "src/varstate"
-    "src/threadstate"
-    )
+    "src/threadstate")
 
 include(GenerateExportHeader)
 # we just need BGL which is header only, hence avoid errors by not importing as a target
@@ -75,10 +74,8 @@ if(Boost_FOUND)
     # TODO add target for drace-detector with INSTALL_INTERFACE
     install(FILES ${PROJECT_SOURCE_DIR}/common/detector/Detector.h DESTINATION ${DRACE_INCLUDE_DEST}/fasttrack)
 
-
-    ##### add profiling stuff #####
+    ##### add profiling parts #####
     add_subdirectory("additional")
-
 
     ################ configure test module ################
     if(BUILD_TESTING)
