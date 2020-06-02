@@ -4,3 +4,5 @@
 #race -> suppresses race where the expression occurs in one of the stack elements
 #this leads to false positives from time to time
 race_tos:std::_LaunchPad<>::_Go
+#suppress races on std::cout (only necessary for tsan due to it's 32-bit addr truncate)
+race_tos:std::operator<<<>

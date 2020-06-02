@@ -11,25 +11,26 @@
 variables:
   PROJECT_NAME: "DRace"
   GIT_SUBMODULE_STRATEGY: "normal"
-  DRRUN_EXE: "C:\\opt\\DynamoRIO-Windows-7.91.18219-0\\bin64\\drrun.exe"
+  DR_VERSION: "8.0.18373"
+  DR_ABI: "8.0"
   _NT_SYMBOL_PATH: "SRV*c:\\symbolcache\\*https://msdl.microsoft.com/download/symbols"
   http_proxy: $CODE_PROXY
   https_proxy: $CODE_PROXY
   no_proxy: code.siemens.com,docker.siemens.com,devops.bt.siemens.com
 
 stages:
-  - generate
-  - build
-  - test
-  - package
+- inspect
+- build
+- test
+- package
 
 ### non architecture dependent tasks ###
 cppcheck:
   <<: *globals
-  stage: build
+  stage: test
   script:
-  - cd build-dr791;  C:\opt\Cppcheck\cppcheck.exe  --project=compile_commands.json --enable=all --inline-suppr --suppressions-list=suppressions.txt --error-exitcode=1 --quiet
-  needs: ["windows_x64:cmake"]
+  - cd win64-dr${DR_ABI};  C:\opt\Cppcheck\cppcheck.exe  --project=compile_commands.json --enable=all --inline-suppr --suppressions-list=suppressions.txt --error-exitcode=1 --quiet
+  needs: ["windows_x64:compile"]
 
 report-converter-test:
   stage: test
@@ -42,7 +43,7 @@ report-converter-test:
   - python3 tools/ReportConverter/ReportConverterUnitTest.py
 
 reuse-compliant:
-  stage: generate
+  stage: inspect
   image: python:latest
   tags:
   - DOCKER
@@ -55,172 +56,68 @@ reuse-compliant:
   - reuse lint
 
 code-style:
-  stage: generate
+  stage: inspect
   tags:
     - DOCKER
   image: ubuntu:18.04
+  variables:
+    GIT_SUBMODULE_STRATEGY: "none"
   script:
   - echo "Check code-style..."
   - apt-get update -y && apt-get install -y git clang-format
   - bash ./contrib/format-files.sh ci
 
-### CMake ###
-
-windows_x64:cmake:
-  <<: *globals
-  stage: generate
-  script:
-  - echo "Release build..."
-  - .\contrib\generate-ci.bat
-  artifacts:
-    paths:
-    - build-dr791
-
-linux_x64:cmake:
-  <<: *globals
-  stage: generate
-  tags:
-   - DOCKER
-  image: ubuntu:18.04
-  script:
-  - echo "Release build..."
-  - apt-get update -y && apt-get install -y libboost-filesystem-dev wget tar cmake gcc g++ git
-  - if [ ! -d "DynamoRIO-x86_64-Linux-7.91.18271-0" ]; then wget https://github.com/DynamoRIO/dynamorio/releases/download/cronbuild-7.91.18271/DynamoRIO-x86_64-Linux-7.91.18271-0.tar.gz; fi
-  - if [ ! -d "DynamoRIO-x86_64-Linux-7.91.18271-0" ]; then tar -xf DynamoRIO-x86_64-Linux-7.91.18271-0.tar.gz; fi
-  - sh ./contrib/generate_x64-ci.sh
-  cache:
-    key: dynamorio-cache-x64
-    paths:
-      - ./DynamoRIO-x86_64-Linux-7.91.18271-0
-  artifacts:
-    paths:
-    - build64
-
-linux_i386:cmake:
-  <<: *globals
-  stage: generate
-  tags:
-   - DOCKER
-  image: ubuntu:18.04
-  script:
-  - echo "Release build..."
-  - dpkg --add-architecture i386
-  - apt-get update -y && apt-get install -y wget tar cmake gcc g++ git  gcc-multilib g++-multilib libboost-filesystem-dev:i386
-  - if [ ! -d "DynamoRIO-i386-Linux-7.91.18271-0" ]; then wget https://github.com/DynamoRIO/dynamorio/releases/download/cronbuild-7.91.18271/DynamoRIO-i386-Linux-7.91.18271-0.tar.gz; fi
-  - if [ ! -d "DynamoRIO-i386-Linux-7.91.18271-0" ]; then tar -xfDynamoRIO-i386-Linux-7.91.18271-0.tar.gz; fi
-  - sh ./contrib/generate_i386-ci.sh
-  cache:
-    key: dynamorio-cache-i386
-    paths:
-      - ./DynamoRIO-i386-Linux-7.91.18271-0
-  artifacts:
-    paths:
-    - build32
-
-linux_x64:cmake:
-  <<: *globals
-  stage: generate
-  tags:
-    - DOCKER
-  image: ubuntu:18.04
-  script:
-  - echo "Release build..."
-  - apt-get update -y && apt-get install -y libboost-filesystem-dev wget tar cmake gcc g++ git
-  - if [ ! -d "DynamoRIO-x86_64-Linux-7.91.18271-0" ]; then wget https://github.com/DynamoRIO/dynamorio/releases/download/cronbuild-7.91.18271/DynamoRIO-x86_64-Linux-7.91.18271-0.tar.gz; fi
-  - if [ ! -d "DynamoRIO-x86_64-Linux-7.91.18271-0" ]; then tar -xf DynamoRIO-x86_64-Linux-7.91.18271-0.tar.gz; fi
-  - sh ./contrib/generate_x64-ci.sh
-  cache:
-    key: dynamorio-cache-x64
-    paths:
-      - ./DynamoRIO-x86_64-Linux-7.91.18271-0
-  artifacts:
-    paths:
-    - build64
-
-linux_i386:cmake:
-  <<: *globals
-  stage: generate
-  tags:
-    - DOCKER
-  image: ubuntu:18.04
-  script:
-  - echo "Release build..."
-  - dpkg --add-architecture i386
-  - apt-get update -y && apt-get install -y wget tar cmake gcc g++ git  gcc-multilib g++-multilib libboost-filesystem-dev:i386
-  - if [ ! -d "DynamoRIO-i386-Linux-7.91.18271-0" ]; then wget https://github.com/DynamoRIO/dynamorio/releases/download/cronbuild-7.91.18271/DynamoRIO-i386-Linux-7.91.18271-0.tar.gz; fi
-  - if [ ! -d "DynamoRIO-i386-Linux-7.91.18271-0" ]; then tar -xfDynamoRIO-i386-Linux-7.91.18271-0.tar.gz; fi
-  - sh ./contrib/generate_i386-ci.sh
-  cache:
-    key: dynamorio-cache-i386
-    paths:
-      - ./DynamoRIO-i386-Linux-7.91.18271-0
-  artifacts:
-    paths:
-    - build32
-    
-### Compile ###
+### CMake + Build ###
 
 windows_x64:compile:
   <<: *globals
   stage: build
-  except:
-  - doc-*
   script:
   - echo "Release build..."
-  - .\contrib\build-ci.bat
+  - .\contrib\compile-win-x64.bat
   artifacts:
     paths:
-    - build-dr791
-  needs:
-    - "windows_x64:cmake"
-    - "code-style"
+    - win64-dr${DR_ABI}
 
 linux_x64:compile:
   <<: *globals
   stage: build
   tags:
    - DOCKER
-  image: ubuntu:18.04
-  script:
+  image: docker.siemens.com/multicore/drace:buildamd64-ci
+  before_script:
   - echo "Release build..."
-  - apt-get update -y
-  - apt-get install -y libboost-filesystem-dev git cmake gcc g++
-  - sh ./contrib/compile_x64-linux.sh
+  - if [ ! -d "DynamoRIO-Linux-${DR_VERSION}" ]; then wget https://github.com/DynamoRIO/dynamorio/releases/download/cronbuild-${DR_VERSION}/DynamoRIO-Linux-${DR_VERSION}.tar.gz; fi
+  - if [ ! -d "DynamoRIO-Linux-${DR_VERSION}" ]; then tar -xf DynamoRIO-Linux-${DR_VERSION}.tar.gz; fi
+  script:
+  - sh ./contrib/compile-linux-x64.sh
   cache:
-    key: dynamorio-cache-x64
+    key: dynamorio-cache-linux
     paths:
-      - ./DynamoRIO-x86_64-Linux-7.91.18271-0
-    policy: pull
+    - ./DynamoRIO-Linux-${DR_VERSION}
   artifacts:
     paths:
-    - build64
-  needs:
-    - "linux_x64:cmake"
-    - "code-style"
+    - linux-x86-64-dr${DR_ABI}
 
 linux_i386:compile:
   <<: *globals
   stage: build
   tags:
    - DOCKER
-  image: ubuntu:18.04
-  script:
+  image: docker.siemens.com/multicore/drace:buildi386-ci
+  before_script:
   - echo "Release build..."
-  - dpkg --add-architecture i386
-  - apt-get update -y
-  - apt-get install -y git cmake gcc g++ gcc-multilib g++-multilib libboost-filesystem-dev:i386
-  - sh ./contrib/compile_i386-linux.sh
+  - if [ ! -d "DynamoRIO-Linux-${DR_VERSION}" ]; then wget https://github.com/DynamoRIO/dynamorio/releases/download/cronbuild-${DR_VERSION}/DynamoRIO-Linux-${DR_VERSION}.tar.gz; fi
+  - if [ ! -d "DynamoRIO-Linux-${DR_VERSION}" ]; then tar -xfDynamoRIO-Linux-${DR_VERSION}.tar.gz; fi
+  script:
+  - sh ./contrib/compile-linux-i386.sh
   cache:
-    key: dynamorio-cache-i386
+    key: dynamorio-cache-linux
     paths:
-      - ./DynamoRIO-i386-Linux-7.91.18271-0
-    policy: pull
+    - ./DynamoRIO-Linux-${DR_VERSION}
   artifacts:
     paths:
-    - build32
-  needs:
-    - "linux_i386:cmake"
-    - "code-style"
+    - linux-i386-dr${DR_ABI}
 
 ### Test ###
 
@@ -229,18 +126,19 @@ windows_x64:test:
   <<: *testing
   stage: test
   script:
-  - cd build-dr791
-  - echo "Use DR 7.91.x"
-  - ctest -j4 -T test --output-on-failure
-  - ./bin/drace-system-tests.exe --gtest_output="xml:test-system-results.xml"
+  - cd win64-dr${DR_ABI}
+  - echo "Use DR ${DR_VERSION}"
+  # run only FT detector backend, as tsan often fails to alloc mem in low-memory environments
+  - ctest -j4 -T test --output-on-failure -E "tsan"
+  - ./bin/drace-system-tests.exe --gtest_output="xml:test-system-results.xml" --gtest_filter="*/0"
   artifacts:
     paths:
-      - build-dr791/test-system-results.xml
-      - build-dr791/Testing/**/Test.xml
+    - win64-dr${DR_ABI}/test-system-results.xml
+    - win64-dr${DR_ABI}/Testing/**/Test.xml
     reports:
       junit:
-      - build-dr791/test-system-results.xml
-      - build-dr791/Testing/**/Test.xml
+      - win64-dr${DR_ABI}/test-system-results.xml
+      - win64-dr${DR_ABI}/Testing/**/Test.xml
   needs: ["windows_x64:compile"]
 
 #once the integration tests in linux are working, uncomment integration tests
@@ -250,22 +148,20 @@ linux_x64:test:
   stage: test
   tags:
    - DOCKER
-  image: ubuntu:18.04
+  image: docker.siemens.com/multicore/drace:buildamd64-ci
   script:
-  - echo "Use DR 7.91.x"
-  - apt-get update -y
-  - apt-get install -y cmake
-  - cd build64
+  - echo "Use DR ${DR_VERSION}"
+  - cd linux-x86-64-dr${DR_ABI}
   - ctest -j4 -T test --output-on-failure
   #- .\test\drace-system-tests --gtest_output="xml:test-system-results.xml"
   artifacts:
     paths:
-    #- build64/test-system-results.xml
-    - build64/Testing/**/Test.xml
+    #- linux-x86-64-dr${DR_ABI}/test-system-results.xml
+    - linux-x86-64-dr${DR_ABI}/Testing/**/Test.xml
     reports:
       junit:
-      #- build64/test-system-results.xml
-      - build64/Testing/**/Test.xml
+      #- linux-x86-64-dr${DR_ABI}/test-system-results.xml
+      - linux-x86-64-dr${DR_ABI}/Testing/**/Test.xml
   needs: ["linux_x64:compile"]
 
 linux_i386:test:
@@ -274,36 +170,54 @@ linux_i386:test:
   stage: test
   tags:
    - DOCKER
-  image: ubuntu:18.04
+  image: docker.siemens.com/multicore/drace:buildi386-ci
   script:
-  - echo "Use DR 7.91.x"
-  - dpkg --add-architecture i386
-  - apt-get update -y
-  - apt-get install -y cmake gcc g++ gcc-multilib g++-multilib libboost-filesystem-dev:i386
-  - cd build32
+  - echo "Use DR ${DR_VERSION}"
+  - cd linux-i386-dr${DR_ABI}
   - ctest -j4 -T test --output-on-failure
   #- .\test\drace-system-tests --gtest_output="xml:test-system-results.xml"
   artifacts:
     paths:
-    #- build32/test-system-results.xml
-    - build32/Testing/**/Test.xml
+    #- linux-i386-dr${DR_ABI}/test-system-results.xml
+    - linux-i386-dr${DR_ABI}/Testing/**/Test.xml
     reports:
       junit:
-      #- build32/test-system-results.xml
-      - build32/Testing/**/Test.xml
+      #- linux-i386-dr${DR_ABI}/test-system-results.xml
+      - linux-i386-dr${DR_ABI}/Testing/**/Test.xml
   needs: ["linux_i386:compile"]
 
 # Package
 windows_x64:bundle:
   <<: *globals
   stage: package
+  tags:
+   - DOCKER
+  # for packaging, we just need NPM, hence run in linux container
+  image: docker.siemens.com/multicore/drace:buildamd64-ci
   script:
-  - Copy-Item "contrib/package.json" -Destination "."
-  - Copy-Item "contrib/package-lock.json" -Destination "."
   - echo "Generate Changelog"
-  - npx generate-changelog
-  - Copy-Item "CHANGELOG.md" -Destination "build-dr791/package/doc/"
-  needs: ["windows_x64:compile"]
+  - cd contrib && npx generate-changelog -f ../CHANGELOG
+  - cd .. && cp "CHANGELOG.md" "win64-dr${DR_ABI}/package/doc/"
+  dependencies:
+  - windows_x64:compile
+  - windows_x64:test
   artifacts:
     paths:
-    - build-dr791/package
+    - win64-dr${DR_ABI}/package
+
+pages:
+  stage: package
+  variables:
+    GIT_STRATEGY: "none"
+  needs:
+  - job: "windows_x64:compile"
+    artifacts: true
+  - job: "windows_x64:test"
+    artifacts: false
+  script:
+  - mv win64-dr${DR_ABI}/doc/html/ public/
+  artifacts:
+    paths:
+    - public
+  only:
+  - master

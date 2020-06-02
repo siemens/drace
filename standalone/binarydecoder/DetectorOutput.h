@@ -53,9 +53,7 @@ class DetectorOutput {
     std::cout << "finished ";
   }
 
-  void makeOutput(ipc::event::BufferEntry*
-                      buf) {  // std::shared_ptr<ipc::event::BufferEntry> buf){
-
+  void makeOutput(ipc::event::BufferEntry* buf) {
     switch (buf->type) {
       case ipc::event::Type::FUNCENTER:
         _det->func_enter(*(tls[buf->payload.funcenter.thread_id]),
@@ -134,11 +132,13 @@ class DetectorOutput {
       static int i = 0;
       s1 = race->first.stack_trace[0];
       s2 = race->second.stack_trace[0];
-      std::cout << s1 << " " << s2 << std::endl;
-      std::cout << race->first.thread_id << " " << race->second.thread_id
-                << std::endl;
-      std::cout << "race: " << i << "\n";
-      i++;
+      std::cout << "pc:   " << (void*)(s1) << " " << (void*)(s2) << std::endl
+                << "addr: " << (void*)(race->first.accessed_memory) << std::endl
+                << "rw:   " << (race->first.write ? "write" : "read") << " "
+                << (race->second.write ? "write" : "read") << std::endl
+                << "tid:  " << std::hex << race->first.thread_id << " "
+                << std::hex << race->second.thread_id << std::endl;
+      std::cout << "race: " << ++i << "\n";
     }
   }
 };

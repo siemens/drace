@@ -1,3 +1,73 @@
+#### 1.7.1 (2020-05-08)
+
+##### Chores
+
+*  cleanup in improved filtering ([915c6c8b](https://github.com/siemens/drace/commit/915c6c8b96a06bf49f6014f259a202f7d423af4d))
+
+##### New Features
+
+*  filter races that happen in an excluded module ([65514318](https://github.com/siemens/drace/commit/6551431840932aa73741e9549a761f09f7a62d65))
+
+##### Bug Fixes
+
+*  avoid false positive in static initialization ([adf40eac](https://github.com/siemens/drace/commit/adf40eacb7a693cbb6db5f6339482fefdf9462de))
+*  repair no-instrumentation support ([14c73fb8](https://github.com/siemens/drace/commit/14c73fb8688aa928b2a71680fa7562f221f5e4db))
+*  correctly handle faults in application ([1114dce2](https://github.com/siemens/drace/commit/1114dce2150d71af30ff8348af9a2a15bec31873))
+*  validate dr path against dr 8.x ([286850e5](https://github.com/siemens/drace/commit/286850e564e4f3841527513e44d671d96d2a0535))
+
+##### Other Changes
+
+*  check validity of tids in join event ([d4459faa](https://github.com/siemens/drace/commit/d4459faa683a022eb47e8c45e48384ce20f7ab48))
+* cout ([3cdaa6b9](https://github.com/siemens/drace/commit/3cdaa6b906bf05891011ce0ada3c08f623e5d072))
+
+##### Tests
+
+*  add linux support for segfault test ([de57243f](https://github.com/siemens/drace/commit/de57243f260771b1b1491d11e3da12c61fcab59b))
+*  vaildate shoppingrush example from howto guide ([1baf7305](https://github.com/siemens/drace/commit/1baf7305d6e796f9d4320cf41085f38c4baa9379))
+
+#### 1.7.0 (2020-05-05)
+
+##### Chores
+
+*  reduce necessary permissions for SHM ([4606dcc7](https://github.com/siemens/drace/commit/4606dcc7ed9a5dd09b9202950a7782a39af45a43))
+*  speedup ci by using pre-build images ([a44a6fa8](https://github.com/siemens/drace/commit/a44a6fa8b7a94f5b1afa84392c0ef0f583e76877))
+*  remove is_standard_layout trait, as not working in all compilers ([674e73ac](https://github.com/siemens/drace/commit/674e73acd1586f7c9fab18ee7c25ad35c0e068c4))
+
+##### Continuous Integration
+
+*  use DynamoRio 8.0.x ([4d9b3e99](https://github.com/siemens/drace/commit/4d9b3e99c80081b77d489b844579a92793e6d839))
+*  run package task in container ([b539244f](https://github.com/siemens/drace/commit/b539244f595cbe987eeed8abebb1382eacd2910c))
+*  use variables to control dr version ([87d25dce](https://github.com/siemens/drace/commit/87d25dcee5a2519dedc9a1197dbaf26a98353323))
+
+##### New Features
+
+*  add printer detector to trace calls to the detector API ([85be7a50](https://github.com/siemens/drace/commit/85be7a50fb7d7d7fc36db1bfeda6061833c24b21))
+*  add support to exclude addresses ([f19eac09](https://github.com/siemens/drace/commit/f19eac0948e6cd516d7da7ad82b98c37c5a77e49))
+*  add addr-based race suppressions ([b09abe4f](https://github.com/siemens/drace/commit/b09abe4fe6a633679ab12536fb1d0d59f4b53ed2))
+
+##### Bug Fixes
+
+*  load tsan early as it uses TLS ([5b854111](https://github.com/siemens/drace/commit/5b854111d14fd21eca2e40303659ec5290b658d3))
+*  use session-local events instead of global ones ([1c684295](https://github.com/siemens/drace/commit/1c6842953572f2e9e47ae3bad082b6a4f1b34cfe))
+*  do not print after return in printer ([cbd9d53e](https://github.com/siemens/drace/commit/cbd9d53eb6b9d2f30107beb591eca16aefe71484))
+*  thread-safety in address exclusion component ([7911c4fd](https://github.com/siemens/drace/commit/7911c4fd1f454d588d3cdd449d2eacd8e2d88df0))
+
+##### Other Changes
+
+*  build and publish doc in CI ([c4f11ac8](https://github.com/siemens/drace/commit/c4f11ac8372985ea1624408d1c775ae55a640959))
+*  improve documentation regarding thread-safety guarantees ([1cc308a4](https://github.com/siemens/drace/commit/1cc308a4daefa36611ceba446d5ee4bceb817e90))
+
+##### Performance Improvements
+
+*  remove inheritance in spinlock ([ee67b9af](https://github.com/siemens/drace/commit/ee67b9af9958304a6ab7b48a197461cac4ad2e38))
+
+##### Tests
+
+*  make system tests portable ([c88499e3](https://github.com/siemens/drace/commit/c88499e353da28cc50e4d0fdb015be632c82e385))
+*  streamlined ci ([a10e9157](https://github.com/siemens/drace/commit/a10e91579b8e3ed9f11e4ad49d9c8a69333c5d62))
+*  disable tsan tests in CI ([dd372986](https://github.com/siemens/drace/commit/dd3729862759fe968c97fa69c7eba8ea04a3128a))
+*  tweak to support unit tests in debug mode ([c8dacef7](https://github.com/siemens/drace/commit/c8dacef7d906372f8c30da9b2470780a82714cdf))
+
 #### 1.6.1 (2020-03-26)
 
 ##### Chores

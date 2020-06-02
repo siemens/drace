@@ -162,7 +162,7 @@ if(Doxygen_FOUND)
 	message(STATUS "Build Documentation")
 	set(DOXYGEN_GENERATE_HTML YES)
 	set(DOXYGEN_GENERATE_MAN NO)
-	set(DOXYGEN_OUTPUT_DIRECTORY docs)
+	set(DOXYGEN_OUTPUT_DIRECTORY doc)
 	set(DOXYGEN_EXCLUDE_PATTERNS
 		"*DynamoRIO*"
 		"build"
