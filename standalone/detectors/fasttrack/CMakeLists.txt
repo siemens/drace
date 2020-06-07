@@ -74,11 +74,11 @@ if(Boost_FOUND)
     # TODO add target for drace-detector with INSTALL_INTERFACE
     install(FILES ${PROJECT_SOURCE_DIR}/common/detector/Detector.h DESTINATION ${DRACE_INCLUDE_DEST}/fasttrack)
 
-    ##### add profiling parts #####
-    add_subdirectory("additional")
-
     ################ configure test module ################
     if(BUILD_TESTING)
+        ##### add profiling parts #####
+        add_subdirectory("additional")
+
         # create library which is linked in global testing module
         add_executable(fasttrack_test ${FT_TEST_SOURCES})
         target_link_libraries(fasttrack_test PRIVATE gtest gtest_main "drace-common" "parallel-hashmap")

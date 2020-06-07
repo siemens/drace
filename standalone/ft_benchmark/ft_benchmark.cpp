@@ -15,15 +15,18 @@
 #include <iostream>
 #include <mutex>
 #include <random>
+#include <set>
 #include <thread>
 #include <vector>
-#include <set>
 
 std::mutex mx;
+static std::set<int> random_reads;
+static std::set<int> random_writes;
+static std::random_device rd{};
+std::mt19937 gen{ 0 };
 
 void generate_block(int i,
                     std::vector<std::pair<uintptr_t*, uintptr_t*>>* blocks) {
-
   std::mt19937_64 gen(42 + i);
   uintptr_t* ptr = new uintptr_t[i];
 
@@ -32,25 +35,49 @@ void generate_block(int i,
   blocks->emplace_back(ptr, ptr + i);
 }
 
-void read_from_block(uintptr_t* begin, uintptr_t* end) {
-  uintptr_t* iter = begin;
-  while (iter != end) {
-    auto tmp = *iter;
-    iter++;
+void read_from_block(std::vector<std::pair<uintptr_t*, uintptr_t*>>* blocks) {
+  try {
+    std::uniform_int_distribution<int> dist(0, blocks->size() - 1);
+    int rnd = dist(gen);
+    random_reads.emplace(rnd);
+    uintptr_t* begin = (*blocks)[rnd].first;
+    uintptr_t* end = (*blocks)[rnd].second;
+
+    uintptr_t* iter = begin;
+    while (iter != end) {
+      auto tmp = *iter;
+      iter++;
+    }
+    // std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  } catch (const std::exception& e) {
+    std::cout << e.what() << std::endl;
+  } catch (...) {
+    std::cout << "Something!" << std::endl;
   }
-  //std::this_thread::sleep_for(std::chrono::milliseconds(500));
 }
 
-void write_to_block(uintptr_t* begin, uintptr_t* end, int i) {
-  uintptr_t* iter = begin;
-  while (iter != end) {
-    *iter = i;
-    iter++;
+void write_to_block(std::vector<std::pair<uintptr_t*, uintptr_t*>>* blocks) {
+  try {
+    std::uniform_int_distribution<int> dist(0, blocks->size() - 1);
+    int rnd = dist(gen);
+    random_writes.emplace(rnd);
+    uintptr_t* begin = (*blocks)[rnd].first;
+    uintptr_t* end = (*blocks)[rnd].second;
+
+    uintptr_t* iter = begin;
+    while (iter != end) {
+      *iter = -1;
+      iter++;
+    }
+    // std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  } catch (const std::exception& e) {
+    std::cout << e.what() << std::endl;
+  } catch (...) {
+    std::cout << "Something!" << std::endl;
   }
-  //std::this_thread::sleep_for(std::chrono::milliseconds(500));
 }
 
-int CountPossibleDataRaces(std::set<int>& random_reads, std::set<int>& random_writes, std::vector<std::pair<uintptr_t*, uintptr_t*>>& blocks);
+int CountPossibleDataRaces();
 
 /**
  * Test tool to check for memory corruption and layout.
@@ -62,7 +89,7 @@ int main(int argc, char** argv) {
   {
     mx.lock();
     for (int i = 0; i < 32; ++i) {
-      for (int j = 2; j <= (64 * 1024); j *= 2) {
+      for (int j = 2; j <= (32 * 1024); j *= 2) {
         generate_block(j, &blocks);
         elem_allocated += j;
       }
@@ -73,27 +100,13 @@ int main(int argc, char** argv) {
   auto alloc_mb = (elem_allocated * sizeof(uintptr_t)) / (1024 * 1024);
   std::cout << "Allocated " << alloc_mb << " MiB" << std::endl;
 
-  int no_of_blocks = 200;
+  int no_of_blocks = 100;
   std::vector<std::thread> readers;
   std::vector<std::thread> writers;
-  std::random_device rd{};
-  std::mt19937 gen{ (unsigned)no_of_blocks };// seed with 
-  std::uniform_int_distribution<int> dist(0, blocks.size() - 1);
-  std::set<int> random_reads;
-  std::set<int> random_writes;
 
   for (int i = 0; i < no_of_blocks; ++i) {
-    if (i % 2 == 0) {
-      int rnd = dist(gen);
-      readers.emplace_back(read_from_block, blocks[rnd].first,
-                           blocks[rnd].second);
-      random_reads.emplace(rnd);
-    } else {
-      int rnd = dist(gen);
-      writers.emplace_back(write_to_block, blocks[rnd].first,
-                           blocks[rnd].second, i);
-      random_writes.emplace(rnd);
-    }
+    readers.emplace_back(read_from_block, &blocks);
+    writers.emplace_back(write_to_block, &blocks);
   }
 
   for (auto& t : readers) {
@@ -103,25 +116,27 @@ int main(int argc, char** argv) {
     t.join();
   }
 
-  int no_of_data_races = CountPossibleDataRaces(random_reads, random_writes, blocks);
-  std::cout << "No. of possible data races: " << std::setw(3) << no_of_data_races << std::endl;
+  int no_of_data_races = CountPossibleDataRaces();
+
+  std::cout << "No. of possible data races: " << std::setw(3)
+            << no_of_data_races << std::endl;
+  //std::cin.get();
 }
 
-int CountPossibleDataRaces(std::set<int>& random_reads, std::set<int>& random_writes, std::vector<std::pair<uintptr_t*, uintptr_t*>>& blocks) {
+int CountPossibleDataRaces() {
   int result = 0;
   auto it_r = random_reads.begin();
   auto it_w = random_writes.begin();
-  while(it_r != random_reads.end() && it_w != random_writes.end()){
+  while (it_r != random_reads.end() && it_w != random_writes.end()) {
     if (*it_r == *it_w) {
-      result ++; //= std::distance(blocks[*it_r].first, blocks[*it_w].second);
+      result++;  //= std::distance(blocks[*it_r].first, blocks[*it_w].second);
       it_r++;
       it_w++;
       continue;
     }
     if (*it_r > *it_w) {
       it_w++;
-    }
-    else {
+    } else {
       it_r++;
     }
   }

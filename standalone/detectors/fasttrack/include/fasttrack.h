@@ -13,12 +13,12 @@
 
 #include <detector/Detector.h>
 #include <ipc/spinlock.h>
+#include <chrono>  //for profiling + seeding random generator
 #include <iomanip>
 #include <iostream>
-#include <mutex>  // for lock_guard
+#include <mutex>   // for lock_guard
+#include <random>  // for removeRandomVarState
 #include <shared_mutex>
-#include <chrono>  //for profiling + seeding random generator
-#include <random> // for removeRandomVarState
 #include "parallel_hashmap/phmap.h"
 #include "stacktrace.h"
 #include "threadstate.h"
@@ -36,8 +36,11 @@ Define for easier profiling for optimization
 */
 #define deb(x) std::cout << #x << " = " << std::setw(3) << std::dec << x << " "
 #define deb_hex(x) \
-  std::cout << #x << " = 0x" << std::hex << remove_it->first << std::dec << " "
-#define deb12(x) std::cout << #x << " = " << std::setw(12) << x << " "
+  std::cout << #x << " = 0x" << std::hex << x << std::dec << " "
+#define deb_long(x) \
+  std::cout << std::setw(50) << #x << " = " << std::setw(12) << x << " "
+#define deb_short(x) \
+  std::cout << std::setw(25) << #x << " = " << std::setw(5) << x << " "
 #define newline() std::cout << std::endl
 
 ///\todo implement a pool allocator
@@ -73,8 +76,8 @@ class Fasttrack : public Detector {
 
 #define DELETE_POLICY true
   bool _flag_removeUselessVarStates = (true && DELETE_POLICY);
-  bool _flag_removeDropSubMaps = (true && DELETE_POLICY);
-  bool _flag_removeRandomVarStates = (false && DELETE_POLICY);
+  bool _flag_removeDropSubMaps = (false && DELETE_POLICY);
+  bool _flag_removeRandomVarStates = (true && DELETE_POLICY);
   bool _flag_removeLowestClockVarStates = (false && DELETE_POLICY);
   std::size_t vars_size = 50000;  // TODO: study optimal threshold
 
@@ -482,7 +485,6 @@ class Fasttrack : public Detector {
           threads.emplace(tid, std::make_shared<ThreadState>(tid, parent))
               .first->second;
     }
-
     return new_thread.get();
   }
 
@@ -519,7 +521,6 @@ class Fasttrack : public Detector {
    * finish()) \note Not Threadsafe
    */
   void cleanup(VectorClock<>::Thread_Num th_num) {
-    // TODO: make it so that here we also yield the thread_num
     {
       for (auto it = locks.begin(); it != locks.end(); ++it) {
         it->second.delete_vc(th_num);
@@ -532,6 +533,10 @@ class Fasttrack : public Detector {
       for (auto it = happens_states.begin(); it != happens_states.end(); ++it) {
         it->second.delete_vc(th_num);
       }
+
+      // we do no need to do VectorClock<>::thread_ids.erase(th_num);
+      // as these will get overwritten once the number will be allocated to
+      // another thread
     }
   }
 
@@ -540,12 +545,6 @@ class Fasttrack : public Detector {
     if (log_flag) {
       log_count.removeUselessVarStates_calls++;
     }
-#if PROF_INFO
-    deb(log_count.removeUselessVarStates_calls);
-    if (log_count.removeUselessVarStates_calls % 10 == 0) {
-      std::this_thread::sleep_for(std::chrono::seconds(10));
-    }
-#endif
     VectorClock<>::Clock min_th_clock = -1;
     {
       std::lock_guard<LockT> exLockT(g_lock);
@@ -582,10 +581,7 @@ class Fasttrack : public Detector {
         it++;
       }
     }
-#if PROF_INFO
-    deb(log_count.no_Useless_VarStates_removed);
-    newline();
-#endif
+
     return min_th_clock;
   }
 
@@ -593,12 +589,6 @@ class Fasttrack : public Detector {
     if (log_flag) {
       log_count.removeRandomVarStates_calls++;
     }
-#if PROF_INFO
-    deb(log_count.removeRandomVarStates_calls);
-    if (log_count.removeRandomVarStates_calls % 5 == 0) {
-      std::this_thread::sleep_for(std::chrono::seconds(10));
-    }
-#endif
 
     auto it = vars.begin();
     // number of VarStates to consider at once for choosing
@@ -634,22 +624,12 @@ class Fasttrack : public Detector {
         log_count.no_Random_VarStates_removed++;
       }
     }
-#if PROF_INFO
-    deb(log_count.no_Random_VarStates_removed);
-    newline();
-#endif
   }
 
   void removeVarStates() {
     if (log_flag) {
       log_count.removeVarStates_calls++;
     }
-#if PROF_INFO
-    deb(log_count.removeVarStates_calls);
-    if (log_count.removeVarStates_calls % 5 == 0) {
-      std::this_thread::sleep_for(std::chrono::seconds(10));
-    }
-#endif
 
     auto it = vars.begin();
     std::size_t pos = 0;
@@ -666,10 +646,6 @@ class Fasttrack : public Detector {
       pos++;
       if (pos == 3) {  // 5 would be way too small. e.g. 2000/10000
         pos = 0;
-
-#if PROF_INFO
-        // deb(min_clock);
-#endif
         vars.erase(remove_it);
         remove_it = it;
         min_clock = -1;
@@ -679,11 +655,6 @@ class Fasttrack : public Detector {
         }
       }
     }
-
-#if PROF_INFO
-    deb(log_count.no_Useful_VarStates_removed);
-    newline();
-#endif
   }
 
  public:
@@ -725,14 +696,35 @@ class Fasttrack : public Detector {
   }
 
   inline void clearVarStates() {
+#if PROF_INFO
+    static int clearVarStates_calls = 0;
+    clearVarStates_calls++;
+    if (clearVarStates_calls % 50 == 0) {
+      std::cout << "---------------clearVarStates call--------------------";
+      newline();
+      deb_short(vars.size());
+      deb_short(vars.capacity());
+      deb_short(_last_min_th_clock);
+      deb_short(threads.size());
+      newline();
+      deb_long(log_count.removeUselessVarStates_calls);
+      deb_long(log_count.removeRandomVarStates_calls);
+      deb_long(log_count.removeVarStates_calls);
+      newline();
+      deb_long(log_count.no_Useless_VarStates_removed);
+      deb_long(log_count.no_Useful_VarStates_removed);
+      deb_long(log_count.no_Random_VarStates_removed);
+      newline();
+      std::this_thread::sleep_for(std::chrono::seconds(5));
+    }
+#endif
+
     if (_flag_removeUselessVarStates) {
       static uint32_t should_call = 1;
       static uint32_t consider_useless = 1;
 #if PROF_INFO
-      std::cout << "-------------clearVarStates call--------------------";
-      newline();
-      deb(consider_useless);
-      deb(should_call);
+      // deb(consider_useless);
+      // deb(should_call);
 #endif
       if (should_call >= consider_useless) {
         VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
@@ -748,16 +740,6 @@ class Fasttrack : public Detector {
         should_call++;
       }
     }
-
-#if PROF_INFO
-    deb(vars.size());
-    deb(vars.capacity());
-    deb(_last_min_th_clock);
-    // std::cout << std::hex << "0x" << vars.begin()->first << std::endl;
-    deb(threads.size());
-    newline();
-#endif
-
     if (_flag_removeDropSubMaps) {
       constexpr size_t mask = 0xFull;
       static size_t index = 0;
@@ -881,14 +863,15 @@ class Fasttrack : public Detector {
     if (del_thread_it == threads.end() || parent_it == threads.end()) {
 #if MAKE_OUTPUT
       std::cerr << "invalid thread IDs in join (" << parent << "," << child
-                << ")" << std::endl;
+        << ")" << std::endl;
 #endif
       return;
     }
 
     ts_ptr del_thread = del_thread_it->second;
     ts_ptr par_thread = parent_it->second;
-    del_thread->inc_vc();
+    //ft2 no longer updates the clock for the thread being joined
+    //del_thread->inc_vc();
     // pass incremented clock of deleted thread to parent
     par_thread->update(*del_thread);
 

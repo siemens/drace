@@ -10,7 +10,6 @@
  *
  * SPDX-License-Identifier: MIT
  */
-
 #include "parallel_hashmap/phmap.h"
 /**
     Implements a VectorClock.
@@ -19,22 +18,12 @@
 template <class _al = std::allocator<std::pair<const size_t, size_t>>>
 class VectorClock {
  public:
-  /// by dividing the id with the multiplier one gets the tid, with modulo one
-  /// gets the clock
-
-// on 64 bit platform 64 bits can be used for a VC_ID on 32 bit only the half
-#if COMPILE_X86
-  static constexpr size_t multplier = 0x10000ull;
-  typedef size_t VC_ID;
-  typedef unsigned short int TID;
-  typedef unsigned short int Clock;
-#else
-  // static constexpr size_t multplier = 0x100000000ull;
+  // on both 64 bits and 32 bits platform, 32 bits will be used for VC_ID
+  // first 10 bits represent the TID and last 22 bits the Clock
   typedef uint32_t VC_ID;
   typedef uint32_t TID;
   typedef uint32_t Clock;
-  typedef uint32_t Thread_Num;  // to be used later
-#endif
+  typedef uint32_t Thread_Num;
 
   /// vector clock which contains multiple thread ids, clocks
   phmap::flat_hash_map<Thread_Num, VC_ID> vc;
@@ -136,13 +125,10 @@ class VectorClock {
     return static_cast<Thread_Num>(id >> 22);
   }
 
-  static constexpr TID make_tid_from_th_num(
-      Thread_Num
-          th_num) {  // TODO: maybe? put some checks to see it's really there
+  static constexpr TID make_tid_from_th_num(Thread_Num th_num) {
     return static_cast<TID>(thread_ids[th_num]);
   }
 
-  // TODO: create a queue of thread numbers;
   static Thread_Num thread_no;
   static phmap::flat_hash_map<VectorClock<>::Thread_Num, VectorClock<>::TID>
       thread_ids;
@@ -152,10 +138,16 @@ class VectorClock {
     thread_ids.emplace(thread_no, tid);
     VC_ID id = thread_no << 22;  // epoch is 0
     thread_no++;
+    if (thread_no >= 1024) {
+      // 1023 is the maximum number of threads. Afterwards we'll have to
+      // overwrite them if thread_no goes over 1024, no TIDs will be found
+      // anymore in thread_ids => queue functionality;
+      thread_no = 1;
+    }
     return id;
   }
 };
-uint32_t VectorClock<>::thread_no = 1;
+VectorClock<>::Thread_Num VectorClock<>::thread_no = 1;
 phmap::flat_hash_map<VectorClock<>::Thread_Num, VectorClock<>::TID>
     VectorClock<>::thread_ids;
 #endif
