@@ -11,7 +11,7 @@
  * SPDX-License-Identifier: MIT
  */
 #include "parallel_hashmap/phmap.h"
-/**
+/*
     Implements a VectorClock.
     Can hold arbitrarily much pairs of a Thread Id and the belonging clock
 */
@@ -19,7 +19,7 @@ template <class _al = std::allocator<std::pair<const size_t, size_t>>>
 class VectorClock {
  public:
   // on both 64 bits and 32 bits platform, 32 bits will be used for VC_ID
-  // first 10 bits represent the TID and last 22 bits the Clock
+  // first 14 bits represent the TID and last 18 bits the Clock
   typedef uint32_t VC_ID;
   typedef uint32_t TID;
   typedef uint32_t Clock;
@@ -106,7 +106,7 @@ class VectorClock {
 
   /// returns the tid of the id
   static constexpr TID make_tid(VC_ID id) {
-    Thread_Num key = id >> 22;
+    Thread_Num key = id >> 18;
     auto it = thread_ids.find(static_cast<Thread_Num>(key));
     if (it != thread_ids.end()) {
       return static_cast<TID>(it->second);
@@ -117,12 +117,12 @@ class VectorClock {
 
   /// returns the clock of the id
   static constexpr Clock make_clock(VC_ID id) {
-    return static_cast<Clock>(id & 0x3FFFFF);
+    return static_cast<Clock>(id & 0x3FFFF);
   }
 
   /// returns the clock of the id
   static constexpr Thread_Num make_th_num(VC_ID id) {
-    return static_cast<Thread_Num>(id >> 22);
+    return static_cast<Thread_Num>(id >> 18);
   }
 
   static constexpr TID make_tid_from_th_num(Thread_Num th_num) {
@@ -136,11 +136,11 @@ class VectorClock {
   /// creates an id with clock=0 from an tid
   static constexpr VC_ID make_id(TID tid) {
     thread_ids.emplace(thread_no, tid);
-    VC_ID id = thread_no << 22;  // epoch is 0
+    VC_ID id = thread_no << 18;  // epoch is 0
     thread_no++;
-    if (thread_no >= 1024) {
-      // 1023 is the maximum number of threads. Afterwards we'll have to
-      // overwrite them if thread_no goes over 1024, no TIDs will be found
+    if (thread_no >= 16384) {
+      // 16383 is the maximum number of threads. Afterwards we'll have to
+      // overwrite them if thread_no goes over 16384, no TIDs will be found
       // anymore in thread_ids => queue functionality;
       thread_no = 1;
     }

@@ -290,7 +290,7 @@ TEST(FasttrackTest, Write_Write_Race) {
   auto ft = std::make_unique<Fasttrack<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r) {};
-  const char* argv_mock[] = { "ft_test" , "--size", "5"};
+  const char* argv_mock[] = { "ft_test" , "--size", "10"}; //making size bigger so the first variable will not be removed again
   void* tls[3];  // storage for TLS data
   void* mtx[2] = { (void*)0x123ull, (void*)0x1234ull };
 

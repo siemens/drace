@@ -13,11 +13,11 @@
 
 #include <detector/Detector.h>
 #include <ipc/spinlock.h>
-#include <chrono>  //for profiling + seeding random generator
 #include <iomanip>
 #include <iostream>
 #include <mutex>   // for lock_guard
 #include <random>  // for removeRandomVarState
+#include <chrono>  //for profiling + seeding random generator
 #include <shared_mutex>
 #include "parallel_hashmap/phmap.h"
 #include "stacktrace.h"
@@ -79,7 +79,7 @@ class Fasttrack : public Detector {
   bool _flag_removeDropSubMaps = (false && DELETE_POLICY);
   bool _flag_removeRandomVarStates = (true && DELETE_POLICY);
   bool _flag_removeLowestClockVarStates = (false && DELETE_POLICY);
-  std::size_t vars_size = 50000;  // TODO: study optimal threshold
+  std::size_t vars_size = 50000;  //optimal threshold
 
   /// internal statistics
   struct log_counters {
@@ -93,7 +93,7 @@ class Fasttrack : public Detector {
     uint32_t write_shared = 0;
     uint32_t wr_race = 0;
     uint32_t rw_sh_race = 0;
-    uint32_t ww_race = 0;
+    uint32_t ww_race = 0; 
     uint32_t rw_ex_race = 0;
     uint32_t removeUselessVarStates_calls = 0;
     uint32_t removeRandomVarStates_calls = 0;
@@ -600,7 +600,7 @@ class Fasttrack : public Detector {
     auto ms = std::chrono::time_point_cast<std::chrono::milliseconds>(now)
                   .time_since_epoch()
                   .count();
-    std::mt19937 _gen{(unsigned int)ms};  // TODO: fails if I use here rd();
+    std::mt19937 _gen{(unsigned int)ms};
     std::uniform_int_distribution<int> dist(0, no_VarStates - 1);
 
     while (pos < vsize - 1) {
@@ -863,15 +863,15 @@ class Fasttrack : public Detector {
     if (del_thread_it == threads.end() || parent_it == threads.end()) {
 #if MAKE_OUTPUT
       std::cerr << "invalid thread IDs in join (" << parent << "," << child
-        << ")" << std::endl;
+                << ")" << std::endl;
 #endif
       return;
     }
 
     ts_ptr del_thread = del_thread_it->second;
     ts_ptr par_thread = parent_it->second;
-    //ft2 no longer updates the clock for the thread being joined
-    //del_thread->inc_vc();
+    // ft2 no longer updates the clock for the thread being joined
+    // del_thread->inc_vc();
     // pass incremented clock of deleted thread to parent
     par_thread->update(*del_thread);
 

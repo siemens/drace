@@ -29,7 +29,7 @@ class VarState {
   // TODO: make these private and make setters & getters for it
   /// local clock of last read
   VectorClock<>::VC_ID w_id{VAR_NOT_INIT};
-  // these are th_num (first 10 bits) + 22 bits epoch
+  // these are th_num (first 14 bits) + 18 bits epoch
 
   /// local clock of last read
   VectorClock<>::VC_ID r_id{VAR_NOT_INIT};
@@ -37,36 +37,36 @@ class VarState {
   VarState() = default;
 
   /// returns id of last write access
-  inline VectorClock<>::VC_ID get_write_id() const { return w_id; }
+  constexpr VectorClock<>::VC_ID get_write_id() const { return w_id; }
 
   /// returns id of last read access (when read is not shared)
-  inline VectorClock<>::VC_ID get_read_id() const { return r_id; }
+  constexpr VectorClock<>::VC_ID get_read_id() const { return r_id; }
 
   /// return tid of thread which last wrote this var
-  inline VectorClock<>::TID get_w_tid() const {
+  constexpr VectorClock<>::TID get_w_tid() const {
     return VectorClock<>::make_tid(w_id);
   }
 
-  inline VectorClock<>::Thread_Num get_w_th_num() const {
+  constexpr VectorClock<>::Thread_Num get_w_th_num() const {
     return VectorClock<>::make_th_num(w_id);
   }
-  inline VectorClock<>::Thread_Num get_r_th_num() const {
+  constexpr VectorClock<>::Thread_Num get_r_th_num() const {
     return VectorClock<>::make_th_num(r_id);
   }
 
   /// return tid of thread which last read this var, if not read shared
-  inline VectorClock<>::TID get_r_tid() const {
+  constexpr VectorClock<>::TID get_r_tid() const {
     return VectorClock<>::make_tid(r_id);
   }
 
   /// returns clock value of thread of last write access
-  inline VectorClock<>::Clock get_w_clock() const {
+  constexpr VectorClock<>::Clock get_w_clock() const {
     return VectorClock<>::make_clock(w_id);
   }
 
   /// returns clock value of thread of last read access (returns 0 when read is
   /// shared)
-  inline VectorClock<>::Clock get_r_clock() const {
+  constexpr VectorClock<>::Clock get_r_clock() const{
     return VectorClock<>::make_clock(r_id);
   }
 

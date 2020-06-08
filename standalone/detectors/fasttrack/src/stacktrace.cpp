@@ -117,7 +117,6 @@ std::list<size_t> StackTrace::return_stack_trace(size_t address) const {
     auto data = it->second;
     return make_trace(data);
   }
-  // A read/write operation was not tracked correctly -> return empty stacktrace
-  // We end up here if we couldn't find the address in the _read_write flat_hash_map
+  // A read/write operation was not tracked correctly => return empty stacktrace
   return {};
 }

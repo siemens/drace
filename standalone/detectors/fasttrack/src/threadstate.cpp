@@ -22,6 +22,6 @@ ThreadState::ThreadState(VectorClock::TID own_tid,
 }
 
 void ThreadState::inc_vc() {
-  id++;  // as the lower 22 bits are clock just increase it by one
+  id++;  // as the lower 18 bits are clock just increase it by one
   vc[make_th_num(id)] = id;
 }

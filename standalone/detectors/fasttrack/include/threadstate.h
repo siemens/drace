@@ -21,10 +21,10 @@
 /// (tid and act clock)
 class ThreadState : public VectorClock<> {
  private:
-  /// holds the tid and the actual clock value -> lower 22 bits are clock and 10
+  /// holds the tid and the actual clock value -> lower 18 bits are clock and 14
   /// bits are TID
-  StackTrace traceDepot;
   VectorClock<>::VC_ID id;
+  StackTrace traceDepot;
   VectorClock<>::TID m_own_tid;
 
  public:
