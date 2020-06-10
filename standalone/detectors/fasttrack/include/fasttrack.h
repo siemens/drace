@@ -65,6 +65,15 @@ class Fasttrack : public Detector {
   template <class X>
   using c_alloc = std::allocator<X>;
 #endif
+ private:
+  /// holds the callback address to report a race to the drace-main
+  Callback clb;
+
+  /// central lock, used for accesses to global tables except vars (order: 1)
+  LockT g_lock;  // global Lock
+
+  /// spinlock to protect accesses to vars table (order: 2)
+  mutable ipc::spinlock vars_spl;
 
  public:
   // Variables to be defined via the external framework
@@ -114,14 +123,14 @@ class Fasttrack : public Detector {
  ---------------------------------------------------------------------
  */
 
-#define EXTRAARGS , phmap::container_internal::hash_default_hash<K>,\
-    phmap::container_internal::hash_default_eq<K>, \
-    std::allocator<std::pair<const K, V>>, 4, LockT
-
   template <class K, class V>
-  using phmap_parallel_node_hash_map = phmap::parallel_node_hash_map<K, V EXTRAARGS>;
+  using phmap_parallel_node_hash_map = phmap::parallel_node_hash_map<
+      K, V, phmap::container_internal::hash_default_hash<K>,
+      phmap::container_internal::hash_default_eq<K>,
+      std::allocator<std::pair<const K, V>>, 4, ipc::spinlock>;
 
-  phmap_parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_ID>> shared_vcs;
+  phmap_parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_ID>>
+      shared_vcs;
   std::array<ipc::spinlock, 1024> spinlocks;
   VectorClock<>::Clock _last_min_th_clock = -1;
 
@@ -135,16 +144,6 @@ class Fasttrack : public Detector {
   phmap::flat_hash_map<void*, VectorClock<>> locks;
   phmap::flat_hash_map<tid_ft, ts_ptr> threads;
   phmap::parallel_flat_hash_map<void*, VectorClock<>> happens_states;
-
-  /// holds the callback address to report a race to the drace-main
-  Callback clb;
-
-  /// central lock, used for accesses to global tables except vars (order: 1)
-  LockT g_lock;  // global Lock
-
-  /// spinlock to protect accesses to vars table (order: 2)
-  mutable ipc::spinlock vars_spl;
-  //mutable ipc::spinlock shared_vc_spl;
 
   /// print statistics about rule-hits
   void process_log_output() const {
@@ -308,7 +307,6 @@ class Fasttrack : public Detector {
 
     xvector<VectorClock<>::VC_ID>* shared_vc;
     {
-       //std::lock_guard<ipc::spinlock> lg(shared_vc_spl);
       auto it = shared_vcs.find(addr);
       /// returns the vector when read is shared
       if (it != shared_vcs.end()) {  // if it exists get a pointer to the vector
@@ -366,7 +364,6 @@ class Fasttrack : public Detector {
     if (is_write) {  // we have to do shared_vcs.erase() here
                      // shared_vcs_it is for sure a phmap::iterator
       if (shared_vc != nullptr) {
-        //std::lock_guard<ipc::spinlock> lg(shared_vc_spl);
         shared_vcs.erase(addr);
       }
       v->r_id = VarState::VAR_NOT_INIT;
@@ -392,7 +389,6 @@ class Fasttrack : public Detector {
 
   /// sets read state of the address to shared
   void set_read_shared(VectorClock<>::VC_ID id, VarState* v, std::size_t addr) {
-    //std::lock_guard<ipc::spinlock> lg(shared_vc_spl);
     xvector<VectorClock<>::VC_ID>* tmp;
     tmp = &(shared_vcs.emplace(addr, xvector<VectorClock<>::VC_ID>(2))
                 .first->second);
@@ -427,7 +423,6 @@ class Fasttrack : public Detector {
 
     xvector<VectorClock<>::VC_ID>* shared_vc;
     {
-       //std::lock_guard<ipc::spinlock> lg(shared_vc_spl);
       auto it = shared_vcs.find(addr);
       if (it != shared_vcs.end()) {
         shared_vc = &(it->second);  // vector copy would be too expensive
@@ -688,6 +683,7 @@ class Fasttrack : public Detector {
     std::lock_guard<LockT> lg1(g_lock);
     {
       std::lock_guard<ipc::spinlock> lg2(vars_spl);
+
       vars.clear();
     }
     locks.clear();
