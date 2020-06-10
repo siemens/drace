@@ -37,18 +37,18 @@ class ThreadState : public VectorClock<> {
   void inc_vc();
 
   /// returns own clock value (upper bits) & thread (lower bits)
-  inline VectorClock::VC_ID return_own_id() const { return id; }
+  constexpr VectorClock::VC_ID return_own_id() const { return id; }
 
   /// returns thread id
-  inline VectorClock::TID get_tid() const { return m_own_tid; }
+  constexpr VectorClock::TID get_tid() const { return m_own_tid; }
   // we eliminate one more find if we cache the own_tid;
 
-  inline VectorClock::Thread_Num get_th_num() const {
+  constexpr VectorClock::Thread_Num get_th_num() const {
     return VectorClock::make_th_num(id);
   }
 
   /// returns current clock
-  inline VectorClock::Clock get_clock() const {
+  constexpr VectorClock::Clock get_clock() const {
     return VectorClock::make_clock(id);
   }
 

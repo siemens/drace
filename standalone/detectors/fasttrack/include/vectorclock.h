@@ -106,13 +106,8 @@ class VectorClock {
 
   /// returns the tid of the id
   static constexpr TID make_tid(VC_ID id) {
-    Thread_Num key = id >> 18;
-    auto it = thread_ids.find(static_cast<Thread_Num>(key));
-    if (it != thread_ids.end()) {
-      return static_cast<TID>(it->second);
-    } else {  // we should never reach this one
-      return -1;
-    }
+    Thread_Num th_num = id >> 18;
+    return make_tid_from_th_num(th_num);
   }
 
   /// returns the clock of the id
@@ -126,7 +121,13 @@ class VectorClock {
   }
 
   static constexpr TID make_tid_from_th_num(Thread_Num th_num) {
-    return static_cast<TID>(thread_ids[th_num]);
+    auto it = thread_ids.find(static_cast<Thread_Num>(th_num));
+    if (it != thread_ids.end()) {
+      return static_cast<TID>(it->second);
+    }
+    else {  // we should never reach this one
+      return -1;
+    }
   }
 
   static Thread_Num thread_no;
