@@ -44,7 +44,7 @@ bool VarState::is_rw_ex_race(ThreadState* t) const {
 /// evaluates for read-shared/write races through this and and access through t
 VectorClock<>::Thread_Num VarState::is_rw_sh_race(
     ThreadState* t, xvector<VectorClock<>::VC_ID>* shared_vc) const {
-  for (unsigned int i = 0; i < shared_vc->size(); ++i) {
+  for (uint32_t i = 0; i < shared_vc->size(); ++i) {
     VectorClock<>::VC_ID act_id = get_sh_id(i, shared_vc);
     VectorClock<>::Thread_Num act_th_num = VectorClock<>::make_th_num(act_id);
 
