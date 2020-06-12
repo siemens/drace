@@ -13,9 +13,11 @@
 
 #include <atomic>
 #include <memory>
+#include <boost/graph/adjacency_list.hpp>
 #include "threadstate.h"
 #include "vectorclock.h"
 #include "xvector.h"
+#include "parallel_hashmap/phmap.h"
 
 /**
  * \brief stores information about a memory location
@@ -33,6 +35,15 @@ class VarState {
 
   /// local clock of last read
   VectorClock<>::VC_ID r_id{VAR_NOT_INIT};
+
+  struct VertexProperty {
+    size_t addr;
+  };
+  typedef boost::adjacency_list<boost::vecS, boost::vecS, boost::bidirectionalS,
+    VertexProperty> StackTree;
+
+  /// holds var_address, pc, stack_length
+  phmap::flat_hash_map<void*, std::pair<size_t, StackTree::vertex_descriptor>> _read_write; //{pc, _ce}
 
   VarState() = default;
 

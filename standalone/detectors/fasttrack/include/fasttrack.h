@@ -33,23 +33,13 @@
 Define for easier debugging and profiling for optimization
 ---------------------------------------------------------------------
 */
-#define PROF_INFO true
+#define PROF_INFO false
 #if PROF_INFO
 #include "prof.h"
 #endif
 
 /// switch debugging of the tool ON & OFF to generate debug code
-#define DEBUG_INFO false
-#if DEBUG_INFO
-#define deb(x) std::cout << #x << " = " << std::setw(3) << std::dec << x << " "
-#define deb_hex(x) \
-  std::cout << #x << " = 0x" << std::hex << x << std::dec << " "
-#define deb_long(x) \
-  std::cout << std::setw(50) << #x << " = " << std::setw(12) << x << " "
-#define deb_short(x) \
-  std::cout << std::setw(25) << #x << " = " << std::setw(5) << x << " "
-#define newline() std::cout << std::endl
-#endif
+#include "debug.h"
 
 ///\todo implement a pool allocator
 #if POOL_ALLOC
@@ -90,7 +80,7 @@ class Fasttrack : public Detector {
 ---------------------------------------------------------------------
 */
   /// switch logging of read/write operations
-  bool log_flag = true;
+  bool log_flag = false;
   bool final_output = (true && log_flag);
 
 #define DELETE_POLICY false
@@ -248,8 +238,8 @@ class Fasttrack : public Detector {
 #if PROF_INFO
     PROF_START_BLOCK("set_read_write")
 #endif
-    thr->get_stackDepot().set_read_write((size_t)(addr),
-                                         reinterpret_cast<size_t>(pc));
+    // thr->get_stackDepot().set_read_write((size_t)(addr),
+    //                                     reinterpret_cast<size_t>(pc));
 #if PROF_INFO
     PROF_END_BLOCK
 #endif
@@ -275,6 +265,17 @@ class Fasttrack : public Detector {
           it = create_var((size_t)(addr));
         }
         var = &(it->second);
+        auto rw_it = var->_read_write.find(reinterpret_cast<void*>(thr));
+        if (rw_it == var->_read_write.end()) {
+          var->_read_write.emplace(
+              reinterpret_cast<void*>(thr),
+              std::make_pair(reinterpret_cast<size_t>(pc),
+                             thr->get_stackDepot().get_current_element()));
+        } else {
+          rw_it->second =
+              std::make_pair(reinterpret_cast<size_t>(pc),
+                             thr->get_stackDepot().get_current_element());
+        }
       }
       read(thr, var, (size_t)addr, size);
     }
@@ -282,8 +283,8 @@ class Fasttrack : public Detector {
 
   void write(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().set_read_write((size_t)addr,
-                                         reinterpret_cast<size_t>(pc));
+    // thr->get_stackDepot().set_read_write((size_t)addr,
+    //                                     reinterpret_cast<size_t>(pc));
 
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(
@@ -302,6 +303,17 @@ class Fasttrack : public Detector {
           it = create_var((size_t)(addr));
         }
         var = &(it->second);
+        auto rw_it = var->_read_write.find(reinterpret_cast<void*>(thr));
+        if (rw_it == var->_read_write.end()) {
+          var->_read_write.emplace(
+              reinterpret_cast<void*>(thr),
+              std::make_pair(reinterpret_cast<size_t>(pc),
+                             thr->get_stackDepot().get_current_element()));
+        } else {
+          rw_it->second =
+              std::make_pair(reinterpret_cast<size_t>(pc),
+                             thr->get_stackDepot().get_current_element());
+        }
       }
       write(thr, var, (size_t)addr, size);
     }
@@ -513,9 +525,9 @@ class Fasttrack : public Detector {
       return;             // stacktraces anymore, return
     }
     std::list<size_t> stack1(
-        std::move(it->second->get_stackDepot().return_stack_trace(address)));
+        std::move(return_stack_trace(var, it->second.get())));
     std::list<size_t> stack2(
-        std::move(it2->second->get_stackDepot().return_stack_trace(address)));
+        std::move(return_stack_trace(var, it2->second.get())));
 
     while (stack1.size() > Detector::max_stack_size) {
       stack1.pop_front();
@@ -956,6 +968,18 @@ class Fasttrack : public Detector {
         }
       }
     }
+  }
+
+  /// returns a stack trace of a clock for handing it over to drace
+  std::list<size_t> return_stack_trace(const VarState& var,
+                                       ThreadState* t) const {
+    //std::lock_guard<ipc::spinlock> lg1(StackTrace::lock);
+    //std::lock_guard<ipc::spinlock> lg2(vars_spl);
+    auto data = var._read_write.find(reinterpret_cast<void*>(t))->second;
+    return t->get_stackDepot().make_trace(data);
+    // A read/write operation was not tracked correctly => return empty
+    // stacktrace
+    return {};
   }
 
  public:  // the log counters are public for testing

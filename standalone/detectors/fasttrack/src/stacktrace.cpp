@@ -11,6 +11,8 @@
 
 #include "stacktrace.h"
 
+#include "debug.h"
+
 std::list<size_t> StackTrace::make_trace(
     const std::pair<size_t, StackTree::vertex_descriptor>& data) const {
   std::list<size_t> this_stack;
@@ -59,7 +61,7 @@ void StackTrace::clean() {
 }
 
 void StackTrace::pop_stack_element() {
-  std::lock_guard<ipc::spinlock> lg(lock);
+  std::lock_guard<ipc::spinlock> lg(StackTrace::lock);
   auto edge = boost::out_edges(_ce, _local_stack);
   _ce = (boost::target(*(edge.first), _local_stack));
 
@@ -74,7 +76,7 @@ void StackTrace::pop_stack_element() {
 }
 
 void StackTrace::push_stack_element(size_t element) {
-  std::lock_guard<ipc::spinlock> lg(lock);
+  std::lock_guard<ipc::spinlock> lg(StackTrace::lock);
   StackTree::vertex_descriptor tmp;
 
   if (boost::in_degree(_ce, _local_stack) > 0) {
@@ -96,27 +98,20 @@ void StackTrace::push_stack_element(size_t element) {
   _ce = tmp; //make the current element of the graph the new function call;
 }
 
-/// when a var is written or read, it copies the stack and adds the pc of the
-/// r/w operation to be able to return the stack trace if a race was detected
-void StackTrace::set_read_write(size_t addr, size_t pc) {
+ipc::spinlock StackTrace::lock;
 
-  std::lock_guard<ipc::spinlock> lg(lock);
-  auto it = _read_write.find(addr);
-  if (it == _read_write.end()) {
-    _read_write.insert({addr, {pc, _ce}});
-  } else {
-    it->second = {pc, _ce};
-  }
-}
 
-/// returns a stack trace of a clock for handing it over to drace
-std::list<size_t> StackTrace::return_stack_trace(size_t address) const {
-  std::lock_guard<ipc::spinlock> lg(lock);
-  auto it = _read_write.find(address);
-  if (it != _read_write.end()) {
-    auto data = it->second;
-    return make_trace(data);
-  }
-  // A read/write operation was not tracked correctly => return empty stacktrace
-  return {};
-}
+//Shouldn't be useful anymore
+///// when a var is written or read, it copies the stack and adds the pc of the
+///// r/w operation to be able to return the stack trace if a race was detected
+//void StackTrace::set_read_write(size_t addr, size_t pc) {
+//
+//  std::lock_guard<ipc::spinlock> lg(lock);
+//  auto it = _read_write.find(addr);
+//  if (it == _read_write.end()) {
+//    _read_write.insert({addr, {pc, _ce}});
+//  } else {
+//    it->second = {pc, _ce};
+//  }
+//}
+

@@ -21,6 +21,7 @@
  *        with references to particular nodes.
  */
 class StackTrace {
+public:
   /// Store the address along with each vertex
   struct VertexProperty {
     size_t addr;
@@ -28,10 +29,6 @@ class StackTrace {
   typedef boost::adjacency_list<boost::vecS, boost::vecS, boost::bidirectionalS,
                                 VertexProperty>
       StackTree;
-
-  /// holds var_address, pc, stack_length
-  phmap::flat_hash_map<size_t, std::pair<size_t, StackTree::vertex_descriptor>>
-      _read_write;
 
   /// holds to complete stack tree
   /// is needed to create the stack trace in case of a race
@@ -47,12 +44,6 @@ class StackTrace {
 
   uint16_t _pop_count = 0;
 
-  mutable ipc::spinlock lock;
-
-  /// re-construct a stack-trace from a bottom node to the root
-  std::list<size_t> make_trace(
-      const std::pair<size_t, StackTree::vertex_descriptor>& data) const;
-
   /**
    * \brief cleanup unreferenced nodes in callstack tree
    * \warning very expensive
@@ -60,6 +51,7 @@ class StackTrace {
   void clean();
 
  public:
+   static ipc::spinlock lock;
   StackTrace() : _ce(boost::add_vertex({0}, _local_stack)), _root(_ce) {}
 
   /**
@@ -87,5 +79,11 @@ class StackTrace {
    * \note threadsafe
    */
   std::list<size_t> return_stack_trace(size_t address) const;
+
+  /// re-construct a stack-trace from a bottom node to the root
+  std::list<size_t> make_trace(
+    const std::pair<size_t, StackTree::vertex_descriptor>& data) const;
+
+  StackTree::vertex_descriptor get_current_element() const { return _ce; }
 };
 #endif
