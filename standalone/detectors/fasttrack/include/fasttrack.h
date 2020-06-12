@@ -31,9 +31,18 @@
 
 /*
 ---------------------------------------------------------------------
-Define for easier profiling for optimization
+Define for easier debugging and profiling for optimization
 ---------------------------------------------------------------------
 */
+
+#define PROF_INFO true
+#if PROF_INFO
+#include "prof.h"
+#endif
+
+/// switch debugging of the tool ON & OFF to generate debug code
+#define DEBUG_INFO false
+#if DEBUG_INFO
 #define deb(x) std::cout << #x << " = " << std::setw(3) << std::dec << x << " "
 #define deb_hex(x) \
   std::cout << #x << " = 0x" << std::hex << x << std::dec << " "
@@ -42,6 +51,7 @@ Define for easier profiling for optimization
 #define deb_short(x) \
   std::cout << std::setw(25) << #x << " = " << std::setw(5) << x << " "
 #define newline() std::cout << std::endl
+#endif
 
 ///\todo implement a pool allocator
 #if POOL_ALLOC
@@ -65,30 +75,6 @@ class Fasttrack : public Detector {
   template <class X>
   using c_alloc = std::allocator<X>;
 #endif
- private:
-  /// holds the callback address to report a race to the drace-main
-  Callback clb;
-
-  /// central lock, used for accesses to global tables except vars (order: 1)
-  LockT g_lock;  // global Lock
-
-  /// spinlock to protect accesses to vars table (order: 2)
-  mutable ipc::spinlock vars_spl;
-
- public:
-  // Variables to be defined via the external framework
-  /// switch profiling of the tool ON & OFF to generate profiling code
-#define PROF_INFO false
-  /// switch logging of read/write operations
-  bool log_flag = true;
-  bool final_output = (true && log_flag);
-
-#define DELETE_POLICY false
-  bool _flag_removeUselessVarStates = (true && DELETE_POLICY);
-  bool _flag_removeDropSubMaps = (false && DELETE_POLICY);
-  bool _flag_removeRandomVarStates = (true && DELETE_POLICY);
-  bool _flag_removeLowestClockVarStates = (false && DELETE_POLICY);
-  std::size_t vars_size = 50000;  // optimal threshold
 
   /// internal statistics
   struct log_counters {
@@ -115,6 +101,27 @@ class Fasttrack : public Detector {
   } log_count;
 
  private:
+  /// holds the callback address to report a race to the drace-main
+  Callback clb;
+
+  /// central lock, used for accesses to global tables except vars (order: 1)
+  LockT g_lock;  // global Lock
+
+  /// spinlock to protect accesses to vars table (order: 2)
+  mutable ipc::spinlock vars_spl;
+
+  // Variables to be defined via the external framework
+
+  /// switch logging of read/write operations
+  bool log_flag = true;
+  bool final_output = (true && log_flag);
+
+#define DELETE_POLICY false
+  bool _flag_removeUselessVarStates = (true && DELETE_POLICY);
+  bool _flag_removeDropSubMaps = (false && DELETE_POLICY);
+  bool _flag_removeRandomVarStates = (true && DELETE_POLICY);
+  bool _flag_removeLowestClockVarStates = (false && DELETE_POLICY);
+  std::size_t vars_size = 50000;  // optimal threshold
   /*
  ---------------------------------------------------------------------
  shared_vcs maps addr to the status of read_shared. we use node, because while
@@ -122,7 +129,6 @@ class Fasttrack : public Detector {
  are on address => we might invalidate our pointers from aanother adress
  ---------------------------------------------------------------------
  */
-
   template <class K, class V>
   using phmap_parallel_node_hash_map = phmap::parallel_node_hash_map<
       K, V, phmap::container_internal::hash_default_hash<K>,
@@ -193,9 +199,9 @@ class Fasttrack : public Detector {
               << "Write exclusive: " << w_ex << std::endl;
     std::cout << std::fixed << std::setprecision(2) << "Write shared: " << w_sh
               << std::endl;
-    std::cout << "--------------------------------------------------------"
+    std::cout << "====----------- FASTTRACK_DETAILS: Values are absolute! "
+                 "-----------===="
               << std::endl;
-    std::cout << "FASTTRACK_DETAILS: Values are absolute!" << std::endl;
     std::cout << "vars_size: " << vars_size << std::endl;
     std::cout << "removeUselessVarStates calls: "
               << log_count.removeUselessVarStates_calls << std::endl;
@@ -217,6 +223,7 @@ class Fasttrack : public Detector {
     std::cout << "rw_sh_race: " << log_count.rw_sh_race << std::endl;
     std::cout << "ww_race: " << log_count.ww_race << std::endl;
     std::cout << "rw_ex_race: " << log_count.rw_ex_race << std::endl;
+    std::cout << std::endl;
   }
 
   /**
@@ -294,6 +301,9 @@ class Fasttrack : public Detector {
    * \note works only on calling-thread and var object, not on any list
    */
   void read(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     if (t->return_own_id() ==
         v->get_read_id()) {  // read same epoch, same thread;
       if (log_flag) {
@@ -361,6 +371,9 @@ class Fasttrack : public Detector {
   void update_VarState(bool is_write, VectorClock<>::VC_ID id, VarState* v,
                        std::size_t addr,
                        xvector<VectorClock<>::VC_ID>* shared_vc) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     if (is_write) {  // we have to do shared_vcs.erase() here
                      // shared_vcs_it is for sure a phmap::iterator
       if (shared_vc != nullptr) {
@@ -402,6 +415,9 @@ class Fasttrack : public Detector {
    * \note works only on calling-thread and var object, not on any list
    */
   void write(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     if (t->return_own_id() == v->get_write_id()) {  // write same epoch
       if (log_flag) {
         log_count.write_same_epoch++;
@@ -464,6 +480,9 @@ class Fasttrack : public Detector {
    * written for the first time) \note Invariant: vars table is locked
    */
   inline auto create_var(size_t addr) {
+#if PROF_INFO
+    PROF_FUNCTION()
+#endif
     if (log_flag) {
       log_count.no_allocatedVarStates++;
     }
@@ -550,6 +569,9 @@ class Fasttrack : public Detector {
 
   VectorClock<>::Clock removeUselessVarStates(
       VectorClock<>::Clock last_min_th_clock) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     if (log_flag) {
       log_count.removeUselessVarStates_calls++;
     }
@@ -594,6 +616,9 @@ class Fasttrack : public Detector {
   }
 
   void removeRandomVarStates() {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     if (log_flag) {
       log_count.removeRandomVarStates_calls++;
     }
@@ -635,6 +660,9 @@ class Fasttrack : public Detector {
   }
 
   void removeVarStates() {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     if (log_flag) {
       log_count.removeVarStates_calls++;
     }
@@ -664,7 +692,6 @@ class Fasttrack : public Detector {
       }
     }
   }
-
   constexpr std::size_t hashOf(std::size_t addr) const { return (addr >> 4); }
 
  public:
@@ -673,9 +700,7 @@ class Fasttrack : public Detector {
   bool init(int argc, const char** argv, Callback rc_clb) final {
     parse_args(argc, argv);
     clb = rc_clb;  // init callback
-
     vars.reserve(vars_size);
-
     return true;
   }
 
@@ -694,6 +719,9 @@ class Fasttrack : public Detector {
     VectorClock<>::thread_ids.clear();
 
     if (final_output) process_log_output();
+#if PROF_INFO
+    ProfTimer::Print();
+#endif
   }
 
   // helper funtion for a unit_test -> might have its usage later
@@ -705,11 +733,11 @@ class Fasttrack : public Detector {
   }
 
   inline void clearVarStates() {
-#if PROF_INFO
+#if DEBUG_INFO
     static int clearVarStates_calls = 0;
     clearVarStates_calls++;
     if (clearVarStates_calls % 50 == 0) {
-      std::cout << "---------------clearVarStates call--------------------";
+      std::cout << "====----------- clearVarStates call -----------====";
       newline();
       deb_short(vars.size());
       deb_short(vars.capacity());
@@ -731,7 +759,7 @@ class Fasttrack : public Detector {
     if (_flag_removeUselessVarStates) {
       static uint32_t should_call = 1;
       static uint32_t consider_useless = 1;
-#if PROF_INFO
+#if DEBUG_INFO
       // deb(consider_useless);
       // deb(should_call);
 #endif
@@ -757,7 +785,7 @@ class Fasttrack : public Detector {
       if (log_flag) {
         log_count.dropSubMap_calls++;
       }
-#if PROF_INFO
+#if DEBUG_INFO
       vars.list_characteristics();
       static int no_call = 1;
       no_call++;
@@ -776,8 +804,14 @@ class Fasttrack : public Detector {
 
   void read(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+#if PROF_INFO
+    PROF_START_BLOCK("set_read_write")
+#endif
     thr->get_stackDepot().set_read_write((size_t)(addr),
                                          reinterpret_cast<size_t>(pc));
+#if PROF_INFO
+    PROF_END_BLOCK
+#endif
 
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(
