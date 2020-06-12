@@ -76,30 +76,6 @@ class Fasttrack : public Detector {
   using c_alloc = std::allocator<X>;
 #endif
 
-  /// internal statistics
-  struct log_counters {
-    uint32_t read_ex_same_epoch = 0;
-    uint32_t read_sh_same_epoch = 0;
-    uint32_t read_shared = 0;
-    uint32_t read_exclusive = 0;
-    uint32_t read_share = 0;
-    uint32_t write_same_epoch = 0;
-    uint32_t write_exclusive = 0;
-    uint32_t write_shared = 0;
-    uint32_t wr_race = 0;
-    uint32_t rw_sh_race = 0;
-    uint32_t ww_race = 0;
-    uint32_t rw_ex_race = 0;
-    uint32_t removeUselessVarStates_calls = 0;
-    uint32_t removeRandomVarStates_calls = 0;
-    uint32_t removeVarStates_calls = 0;
-    std::size_t no_Useful_VarStates_removed = 0;
-    std::size_t no_Useless_VarStates_removed = 0;
-    std::size_t no_Random_VarStates_removed = 0;
-    std::size_t no_allocatedVarStates = 0;
-    std::size_t dropSubMap_calls = 0;
-  } log_count;
-
  private:
   /// holds the callback address to report a race to the drace-main
   Callback clb;
@@ -151,80 +127,375 @@ class Fasttrack : public Detector {
   phmap::flat_hash_map<tid_ft, ts_ptr> threads;
   phmap::parallel_flat_hash_map<void*, VectorClock<>> happens_states;
 
-  /// print statistics about rule-hits
-  void process_log_output() const {
-    double read_actions, write_actions;
-    // percentages
-    double rd, wr, r_ex_se, r_sh_se, r_ex, r_share, r_shared, w_se, w_ex, w_sh;
+public:
+  explicit Fasttrack() = default;
 
-    read_actions = log_count.read_ex_same_epoch + log_count.read_sh_same_epoch +
-                   log_count.read_exclusive + log_count.read_share +
-                   log_count.read_shared;
-    write_actions = log_count.write_same_epoch + log_count.write_exclusive +
-                    log_count.write_shared;
-
-    rd = (read_actions / (read_actions + write_actions)) * 100;
-    wr = 100 - rd;
-    r_ex_se = (log_count.read_ex_same_epoch / read_actions) * 100;
-    r_sh_se = (log_count.read_sh_same_epoch / read_actions) * 100;
-    r_ex = (log_count.read_exclusive / read_actions) * 100;
-    r_share = (log_count.read_share / read_actions) * 100;
-    r_shared = (log_count.read_shared / read_actions) * 100;
-    w_se = (log_count.write_same_epoch / write_actions) * 100;
-    w_ex = (log_count.write_exclusive / write_actions) * 100;
-    w_sh = (log_count.write_shared / write_actions) * 100;
-
-    std::cout << "FASTTRACK_STATISTICS: All values are percentages!"
-              << std::endl;
-    std::cout << std::fixed << std::setprecision(2) << "Read Actions: " << rd
-              << std::endl;
-    std::cout << "Of which: " << std::endl;
-    std::cout << std::fixed << std::setprecision(2)
-              << "Read exclusive same epoch: " << r_ex_se << std::endl;
-    std::cout << std::fixed << std::setprecision(2)
-              << "Read shared same epoch: " << r_sh_se << std::endl;
-    std::cout << std::fixed << std::setprecision(2)
-              << "Read exclusive: " << r_ex << std::endl;
-    std::cout << std::fixed << std::setprecision(2) << "Read share: " << r_share
-              << std::endl;
-    std::cout << std::fixed << std::setprecision(2)
-              << "Read shared: " << r_shared << std::endl;
-    std::cout << std::endl;
-    std::cout << std::fixed << std::setprecision(2) << "Write Actions: " << wr
-              << std::endl;
-    std::cout << "Of which: " << std::endl;
-    std::cout << std::fixed << std::setprecision(2)
-              << "Write same epoch: " << w_se << std::endl;
-    std::cout << std::fixed << std::setprecision(2)
-              << "Write exclusive: " << w_ex << std::endl;
-    std::cout << std::fixed << std::setprecision(2) << "Write shared: " << w_sh
-              << std::endl;
-    std::cout << "====----------- FASTTRACK_DETAILS: Values are absolute! "
-                 "-----------===="
-              << std::endl;
-    std::cout << "vars_size: " << vars_size << std::endl;
-    std::cout << "removeUselessVarStates calls: "
-              << log_count.removeUselessVarStates_calls << std::endl;
-    std::cout << "removeRandomVarStates calls: "
-              << log_count.removeRandomVarStates_calls << std::endl;
-    std::cout << "removeVarStates calls: " << log_count.removeVarStates_calls
-              << std::endl;
-    std::cout << "dropSubMap_calls calls: " << log_count.dropSubMap_calls
-              << std::endl;
-    std::cout << "no4_Useful_VarStates_removed: "
-              << log_count.no_Useful_VarStates_removed << std::endl;
-    std::cout << "no_Useless_VarStates_removed: "
-              << log_count.no_Useless_VarStates_removed << std::endl;
-    std::cout << "no_Random_VarStates_removed: "
-              << log_count.no_Random_VarStates_removed << std::endl;
-    std::cout << "number of allocated VarStates: "
-              << log_count.no_allocatedVarStates << std::endl;
-    std::cout << "wr_race: " << log_count.wr_race << std::endl;
-    std::cout << "rw_sh_race: " << log_count.rw_sh_race << std::endl;
-    std::cout << "ww_race: " << log_count.ww_race << std::endl;
-    std::cout << "rw_ex_race: " << log_count.rw_ex_race << std::endl;
-    std::cout << std::endl;
+  bool init(int argc, const char** argv, Callback rc_clb) final {
+    parse_args(argc, argv);
+    clb = rc_clb;  // init callback
+    vars.reserve(vars_size);
+    return true;
   }
+
+  void finalize() final {
+    std::lock_guard<LockT> lg1(g_lock);
+    {
+      std::lock_guard<ipc::spinlock> lg2(vars_spl);
+
+      vars.clear();
+    }
+    locks.clear();
+    happens_states.clear();
+    allocs.clear();
+    threads.clear();
+    shared_vcs.clear();
+    VectorClock<>::thread_ids.clear();
+
+    if (final_output) process_log_output();
+#if PROF_INFO
+    ProfTimer::Print();
+#endif
+  }
+
+  // helper funtion for a unit_test -> might have its usage later
+  void clearVarState(std::size_t addr) {
+    auto it = vars.find((size_t)(addr));
+    if (it != vars.end()) {
+      vars.erase(it);
+    }
+  }
+
+  inline void clearVarStates() {
+#if DEBUG_INFO
+    static int clearVarStates_calls = 0;
+    clearVarStates_calls++;
+    if (clearVarStates_calls % 50 == 0) {
+      std::cout << "====----------- clearVarStates call -----------====";
+      newline();
+      deb_short(vars.size());
+      deb_short(vars.capacity());
+      deb_short(_last_min_th_clock);
+      deb_short(threads.size());
+      newline();
+      deb_long(log_count.removeUselessVarStates_calls);
+      deb_long(log_count.removeRandomVarStates_calls);
+      deb_long(log_count.removeVarStates_calls);
+      newline();
+      deb_long(log_count.no_Useless_VarStates_removed);
+      deb_long(log_count.no_Useful_VarStates_removed);
+      deb_long(log_count.no_Random_VarStates_removed);
+      newline();
+      std::this_thread::sleep_for(std::chrono::seconds(5));
+    }
+#endif
+
+    if (_flag_removeUselessVarStates) {
+      static uint32_t should_call = 1;
+      static uint32_t consider_useless = 1;
+#if DEBUG_INFO
+      // deb(consider_useless);
+      // deb(should_call);
+#endif
+      if (should_call >= consider_useless) {
+        VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
+        if (_last_min_th_clock == tmp) {
+          consider_useless *= 2;
+        }
+        else {
+          _last_min_th_clock = tmp;
+          consider_useless = 1;
+        }
+        should_call = 1;
+        return;
+      }
+      else {
+        should_call++;
+      }
+    }
+    if (_flag_removeDropSubMaps) {
+      constexpr size_t mask = 0xFull;
+      static size_t index = 0;
+      vars.dropSubMap((index & mask));
+      index++;
+      if (log_flag) {
+        log_count.dropSubMap_calls++;
+      }
+#if DEBUG_INFO
+      vars.list_characteristics();
+      static int no_call = 1;
+      no_call++;
+      if (no_call % 10 == 0) {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+      }
+#endif
+    }
+    if (_flag_removeRandomVarStates) {
+      removeRandomVarStates();
+    }
+    if (_flag_removeLowestClockVarStates) {
+      removeVarStates();
+    }
+  }
+
+  void read(tls_t tls, void* pc, void* addr, size_t size) final {
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+#if PROF_INFO
+    PROF_START_BLOCK("set_read_write")
+#endif
+      thr->get_stackDepot().set_read_write((size_t)(addr),
+        reinterpret_cast<size_t>(pc));
+#if PROF_INFO
+    PROF_END_BLOCK
+#endif
+
+    {  // lock on the address
+      std::lock_guard<ipc::spinlock> lg(
+          spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
+
+      VarState* var;
+      {  // finds the VarState instance of a specific addr or creates it
+        std::lock_guard<ipc::spinlock> exLockT(vars_spl);
+
+#if DELETE_POLICY
+        if (vars.size() >= vars_size) {
+          clearVarStates();
+        }
+#endif
+
+        auto it = vars.find((size_t)addr);
+        if (it == vars.end()) {
+#if MAKE_OUTPUT
+          std::cout << "variable is read before written"
+                    << std::endl;  // warning
+#endif
+          it = create_var((size_t)(addr));
+        }
+        var = &(it->second);
+      }
+      read(thr, var, (size_t)addr, size);
+    }
+  }
+
+  void write(tls_t tls, void* pc, void* addr, size_t size) final {
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->get_stackDepot().set_read_write((size_t)addr,
+      reinterpret_cast<size_t>(pc));
+
+    {  // lock on the address
+      std::lock_guard<ipc::spinlock> lg(
+        spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
+
+      VarState* var;
+      {  // lock to access the vars HashMap
+        std::lock_guard<ipc::spinlock> exLockT(vars_spl);
+
+#if DELETE_POLICY
+        if (vars.size() >= vars_size) {
+          clearVarStates();
+        }
+#endif
+
+        auto it = vars.find((size_t)addr);
+        if (it == vars.end()) {
+          it = create_var((size_t)(addr));
+        }
+        var = &(it->second);
+      }
+      write(thr, var, (size_t)addr, size);
+    }
+  }
+
+  void func_enter(tls_t tls, void* pc) final {
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->get_stackDepot().push_stack_element(reinterpret_cast<size_t>(pc));
+  }
+
+  void func_exit(tls_t tls) final {
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->get_stackDepot().pop_stack_element();
+  }
+
+  void fork(tid_t parent, tid_t child, tls_t* tls) final {
+    ThreadState* thr;
+
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto thrit = threads.find(parent);
+    if (thrit != threads.end()) {
+      {
+        thrit->second->inc_vc();  // inc vector clock for creation of new thread
+      }
+      thr = create_thread(child, threads[parent]);
+    }
+    else {
+      thr = create_thread(child);
+    }
+    *tls = reinterpret_cast<tls_t>(thr);
+  }
+
+  void join(tid_t parent, tid_t child) final {
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto del_thread_it = threads.find(child);
+    auto parent_it = threads.find(parent);
+    // TODO: we should never see invalid ids here.
+    // However, after an application fault like in the howto,
+    // at least one thread is joined multiple times
+    if (del_thread_it == threads.end() || parent_it == threads.end()) {
+#if MAKE_OUTPUT
+      std::cerr << "invalid thread IDs in join (" << parent << "," << child
+        << ")" << std::endl;
+#endif
+      return;
+    }
+
+    ts_ptr del_thread = del_thread_it->second;
+    VectorClock<>::Thread_Num del_thread_th_num =
+      del_thread_it->second->get_th_num();
+    ts_ptr par_thread = parent_it->second;
+
+    par_thread->update(*del_thread);
+
+    threads.erase(del_thread_it);  // no longer do the search
+    cleanup(del_thread_th_num);
+  }
+
+  // sync thread vc to lock vc
+  void acquire(tls_t tls, void* mutex, int recursive, bool write) final {
+    if (recursive >
+      1) {   // lock haven't been updated by another thread (by definition)
+      return;  // therefore no action needed here as only the invoking
+               // thread may have updated the lock
+    }
+
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto it = locks.find(mutex);
+    if (it == locks.end()) {
+      it = createLock(mutex);
+    }
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    (thr)->update(it->second);
+  }
+
+  void release(tls_t tls, void* mutex, bool write) final {
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto it = locks.find(mutex);
+    if (it == locks.end()) {
+#if MAKE_OUTPUT
+      std::cerr << "lock is released but was never acquired by any thread"
+        << std::endl;
+#endif
+      createLock(mutex);
+      return;  // as lock is empty (was never acquired), we can return here
+    }
+
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->inc_vc();
+
+    // increase vector clock and propagate to lock
+    it->second.update(thr);  // ThreadState* is VectorClock* (inheritance)
+  }
+
+  // identifier = TID of another thread, which happens before our thread
+  void happens_before(tls_t tls, void* identifier) final {
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto it = happens_states.find(identifier);
+    if (it == happens_states.end()) {
+      it = create_happens(identifier);
+    }
+
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+
+    thr->inc_vc();  // increment clock of thread and update happens state
+    it->second.update(thr->get_th_num(), thr->return_own_id());
+    // calls update(Thread_Num th_num, VC_ID id)
+  }
+
+  void happens_after(tls_t tls, void* identifier) final {
+    {
+      std::lock_guard<LockT> exLockT(g_lock);
+      auto it = happens_states.find(identifier);
+      if (it == happens_states.end()) {
+        create_happens(identifier);
+        return;  // create -> no happens_before can be synced
+      }
+      else {
+        ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+        // update vector clock of thread with happened before clocks
+        thr->update(it->second);  // calls update(VectorClock* other)
+      }
+    }
+  }
+
+  void allocate(tls_t tls, void* pc, void* addr, size_t size) final {
+#if REGARD_ALLOCS
+    size_t address = reinterpret_cast<size_t>(addr);
+    std::lock_guard<LockT> exLockT(g_lock);
+    if (allocs.find(address) == allocs.end()) {
+      create_alloc(address, size);
+    }
+#endif
+  }
+
+  // when we deallocate a variable we erase it from the VarState
+  void deallocate(tls_t tls, void* addr) final {
+#if REGARD_ALLOCS
+    size_t address = reinterpret_cast<size_t>(addr);
+    size_t end_addr;
+
+    std::lock_guard<LockT> exLockT(g_lock);
+    end_addr = address + allocs[address];  // allocs[address] = size;
+
+    // variable is deallocated so varstate objects can be destroyed
+    while (address < end_addr) {  // we go and deallocate each address
+      /*
+      Let's say we have a big vector that gets allocated. we track the
+      allocation, but we don't create the Var state objects for the
+      adresses. We create them 1 by 1 on each access. But when we deallocate
+      we clear all of them.*/
+      std::lock_guard<ipc::spinlock> lg(vars_spl);
+      if (vars.find(address) != vars.end()) {
+        // TODO: why does this exist ?
+        // auto& var = vars.find(address)->second;
+        vars.erase(address);
+        address++;
+      }
+      else {
+        address++;
+      }
+    }
+    allocs.erase(address);
+#endif
+  }
+
+  void detach(tls_t tls, tid_t thread_id) final {
+    /// \todo This is currently not supported
+    return;
+  }
+
+  void finish(tls_t tls, tid_t thread_id) final {
+    std::lock_guard<LockT> exLockT(g_lock);
+    /// just delete thread from list, no backward sync needed
+    VectorClock<>::Thread_Num th_num;
+    auto thrit = threads.find(thread_id);
+    th_num = thrit->second->get_th_num();
+
+    threads.erase(thrit);
+    cleanup(th_num);
+  }
+
+  /**
+   * \note allocation of shadow memory is not required in this
+   *       detector. If a standalone version of Fasttrack is used
+   *       this function can be ignored
+   */
+  void map_shadow(void* startaddr, size_t size_in_bytes) final { return; }
+
+  const char* name() final { return "FASTTRACK"; }
+
+  const char* version() final { return "0.0.1"; }
+
+private:
+
+  constexpr std::size_t hashOf(std::size_t addr) const { return (addr >> 4); }
 
   /**
    * \brief report a data-race back to DRace
@@ -560,10 +831,6 @@ class Fasttrack : public Detector {
       for (auto it = happens_states.begin(); it != happens_states.end(); ++it) {
         it->second.delete_vc(th_num);
       }
-
-      // we do no need to do VectorClock<>::thread_ids.erase(th_num);
-      // as these will get overwritten once the number will be allocated to
-      // another thread
     }
   }
 
@@ -692,368 +959,108 @@ class Fasttrack : public Detector {
       }
     }
   }
-  constexpr std::size_t hashOf(std::size_t addr) const { return (addr >> 4); }
 
- public:
-  explicit Fasttrack() = default;
+ public: //the log counters are public for testing
+  /// statistics
+  struct log_counters {
+    uint32_t read_ex_same_epoch = 0;
+    uint32_t read_sh_same_epoch = 0;
+    uint32_t read_shared = 0;
+    uint32_t read_exclusive = 0;
+    uint32_t read_share = 0;
+    uint32_t write_same_epoch = 0;
+    uint32_t write_exclusive = 0;
+    uint32_t write_shared = 0;
+    uint32_t wr_race = 0;
+    uint32_t rw_sh_race = 0;
+    uint32_t ww_race = 0;
+    uint32_t rw_ex_race = 0;
+    uint32_t removeUselessVarStates_calls = 0;
+    uint32_t removeRandomVarStates_calls = 0;
+    uint32_t removeVarStates_calls = 0;
+    std::size_t no_Useful_VarStates_removed = 0;
+    std::size_t no_Useless_VarStates_removed = 0;
+    std::size_t no_Random_VarStates_removed = 0;
+    std::size_t no_allocatedVarStates = 0;
+    std::size_t dropSubMap_calls = 0;
+  } log_count;
 
-  bool init(int argc, const char** argv, Callback rc_clb) final {
-    parse_args(argc, argv);
-    clb = rc_clb;  // init callback
-    vars.reserve(vars_size);
-    return true;
+private:
+  /// print statistics about rule-hits
+  void process_log_output() const {
+    double read_actions, write_actions;
+    // percentages
+    double rd, wr, r_ex_se, r_sh_se, r_ex, r_share, r_shared, w_se, w_ex, w_sh;
+
+    read_actions = log_count.read_ex_same_epoch + log_count.read_sh_same_epoch +
+      log_count.read_exclusive + log_count.read_share +
+      log_count.read_shared;
+    write_actions = log_count.write_same_epoch + log_count.write_exclusive +
+      log_count.write_shared;
+
+    rd = (read_actions / (read_actions + write_actions)) * 100;
+    wr = 100 - rd;
+    r_ex_se = (log_count.read_ex_same_epoch / read_actions) * 100;
+    r_sh_se = (log_count.read_sh_same_epoch / read_actions) * 100;
+    r_ex = (log_count.read_exclusive / read_actions) * 100;
+    r_share = (log_count.read_share / read_actions) * 100;
+    r_shared = (log_count.read_shared / read_actions) * 100;
+    w_se = (log_count.write_same_epoch / write_actions) * 100;
+    w_ex = (log_count.write_exclusive / write_actions) * 100;
+    w_sh = (log_count.write_shared / write_actions) * 100;
+
+    std::cout << "FASTTRACK_STATISTICS: All values are percentages!"
+      << std::endl;
+    std::cout << std::fixed << std::setprecision(2) << "Read Actions: " << rd
+      << std::endl;
+    std::cout << "Of which: " << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+      << "Read exclusive same epoch: " << r_ex_se << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+      << "Read shared same epoch: " << r_sh_se << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+      << "Read exclusive: " << r_ex << std::endl;
+    std::cout << std::fixed << std::setprecision(2) << "Read share: " << r_share
+      << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+      << "Read shared: " << r_shared << std::endl;
+    std::cout << std::endl;
+    std::cout << std::fixed << std::setprecision(2) << "Write Actions: " << wr
+      << std::endl;
+    std::cout << "Of which: " << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+      << "Write same epoch: " << w_se << std::endl;
+    std::cout << std::fixed << std::setprecision(2)
+      << "Write exclusive: " << w_ex << std::endl;
+    std::cout << std::fixed << std::setprecision(2) << "Write shared: " << w_sh
+      << std::endl;
+    std::cout << "====----------- FASTTRACK_DETAILS: Values are absolute! "
+      "-----------===="
+      << std::endl;
+    std::cout << "vars_size: " << vars_size << std::endl;
+    std::cout << "removeUselessVarStates calls: "
+      << log_count.removeUselessVarStates_calls << std::endl;
+    std::cout << "removeRandomVarStates calls: "
+      << log_count.removeRandomVarStates_calls << std::endl;
+    std::cout << "removeVarStates calls: " << log_count.removeVarStates_calls
+      << std::endl;
+    std::cout << "dropSubMap_calls calls: " << log_count.dropSubMap_calls
+      << std::endl;
+    std::cout << "no4_Useful_VarStates_removed: "
+      << log_count.no_Useful_VarStates_removed << std::endl;
+    std::cout << "no_Useless_VarStates_removed: "
+      << log_count.no_Useless_VarStates_removed << std::endl;
+    std::cout << "no_Random_VarStates_removed: "
+      << log_count.no_Random_VarStates_removed << std::endl;
+    std::cout << "number of allocated VarStates: "
+      << log_count.no_allocatedVarStates << std::endl;
+    std::cout << "wr_race: " << log_count.wr_race << std::endl;
+    std::cout << "rw_sh_race: " << log_count.rw_sh_race << std::endl;
+    std::cout << "ww_race: " << log_count.ww_race << std::endl;
+    std::cout << "rw_ex_race: " << log_count.rw_ex_race << std::endl;
+    std::cout << std::endl;
   }
 
-  void finalize() final {
-    std::lock_guard<LockT> lg1(g_lock);
-    {
-      std::lock_guard<ipc::spinlock> lg2(vars_spl);
-
-      vars.clear();
-    }
-    locks.clear();
-    happens_states.clear();
-    allocs.clear();
-    threads.clear();
-    shared_vcs.clear();
-    VectorClock<>::thread_ids.clear();
-
-    if (final_output) process_log_output();
-#if PROF_INFO
-    ProfTimer::Print();
-#endif
-  }
-
-  // helper funtion for a unit_test -> might have its usage later
-  void clearVarState(std::size_t addr) {
-    auto it = vars.find((size_t)(addr));
-    if (it != vars.end()) {
-      vars.erase(it);
-    }
-  }
-
-  inline void clearVarStates() {
-#if DEBUG_INFO
-    static int clearVarStates_calls = 0;
-    clearVarStates_calls++;
-    if (clearVarStates_calls % 50 == 0) {
-      std::cout << "====----------- clearVarStates call -----------====";
-      newline();
-      deb_short(vars.size());
-      deb_short(vars.capacity());
-      deb_short(_last_min_th_clock);
-      deb_short(threads.size());
-      newline();
-      deb_long(log_count.removeUselessVarStates_calls);
-      deb_long(log_count.removeRandomVarStates_calls);
-      deb_long(log_count.removeVarStates_calls);
-      newline();
-      deb_long(log_count.no_Useless_VarStates_removed);
-      deb_long(log_count.no_Useful_VarStates_removed);
-      deb_long(log_count.no_Random_VarStates_removed);
-      newline();
-      std::this_thread::sleep_for(std::chrono::seconds(5));
-    }
-#endif
-
-    if (_flag_removeUselessVarStates) {
-      static uint32_t should_call = 1;
-      static uint32_t consider_useless = 1;
-#if DEBUG_INFO
-      // deb(consider_useless);
-      // deb(should_call);
-#endif
-      if (should_call >= consider_useless) {
-        VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
-        if (_last_min_th_clock == tmp) {
-          consider_useless *= 2;
-        } else {
-          _last_min_th_clock = tmp;
-          consider_useless = 1;
-        }
-        should_call = 1;
-        return;
-      } else {
-        should_call++;
-      }
-    }
-    if (_flag_removeDropSubMaps) {
-      constexpr size_t mask = 0xFull;
-      static size_t index = 0;
-      vars.dropSubMap((index & mask));
-      index++;
-      if (log_flag) {
-        log_count.dropSubMap_calls++;
-      }
-#if DEBUG_INFO
-      vars.list_characteristics();
-      static int no_call = 1;
-      no_call++;
-      if (no_call % 10 == 0) {
-        std::this_thread::sleep_for(std::chrono::seconds(5));
-      }
-#endif
-    }
-    if (_flag_removeRandomVarStates) {
-      removeRandomVarStates();
-    }
-    if (_flag_removeLowestClockVarStates) {
-      removeVarStates();
-    }
-  }
-
-  void read(tls_t tls, void* pc, void* addr, size_t size) final {
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-#if PROF_INFO
-    PROF_START_BLOCK("set_read_write")
-#endif
-    thr->get_stackDepot().set_read_write((size_t)(addr),
-                                         reinterpret_cast<size_t>(pc));
-#if PROF_INFO
-    PROF_END_BLOCK
-#endif
-
-    {  // lock on the address
-      std::lock_guard<ipc::spinlock> lg(
-          spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
-
-      VarState* var;
-      {  // finds the VarState instance of a specific addr or creates it
-        std::lock_guard<ipc::spinlock> exLockT(vars_spl);
-
-#if DELETE_POLICY
-        if (vars.size() >= vars_size) {
-          clearVarStates();
-        }
-#endif
-
-        auto it = vars.find((size_t)addr);
-        if (it == vars.end()) {
-#if MAKE_OUTPUT
-          std::cout << "variable is read before written"
-                    << std::endl;  // warning
-#endif
-          it = create_var((size_t)(addr));
-        }
-        var = &(it->second);
-      }
-      read(thr, var, (size_t)addr, size);
-    }
-  }
-
-  void write(tls_t tls, void* pc, void* addr, size_t size) final {
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().set_read_write((size_t)addr,
-                                         reinterpret_cast<size_t>(pc));
-
-    {  // lock on the address
-      std::lock_guard<ipc::spinlock> lg(
-          spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
-
-      VarState* var;
-      {  // lock to access the vars HashMap
-        std::lock_guard<ipc::spinlock> exLockT(vars_spl);
-
-#if DELETE_POLICY
-        if (vars.size() >= vars_size) {
-          clearVarStates();
-        }
-#endif
-
-        auto it = vars.find((size_t)addr);
-        if (it == vars.end()) {
-          it = create_var((size_t)(addr));
-        }
-        var = &(it->second);
-      }
-      write(thr, var, (size_t)addr, size);
-    }
-  }
-
-  void func_enter(tls_t tls, void* pc) final {
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().push_stack_element(reinterpret_cast<size_t>(pc));
-  }
-
-  void func_exit(tls_t tls) final {
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().pop_stack_element();
-  }
-
-  void fork(tid_t parent, tid_t child, tls_t* tls) final {
-    ThreadState* thr;
-
-    std::lock_guard<LockT> exLockT(g_lock);
-    auto thrit = threads.find(parent);
-    if (thrit != threads.end()) {
-      {
-        thrit->second->inc_vc();  // inc vector clock for creation of new thread
-      }
-      thr = create_thread(child, threads[parent]);
-    } else {
-      thr = create_thread(child);
-    }
-    *tls = reinterpret_cast<tls_t>(thr);
-  }
-
-  void join(tid_t parent, tid_t child) final {
-    std::lock_guard<LockT> exLockT(g_lock);
-    auto del_thread_it = threads.find(child);
-    auto parent_it = threads.find(parent);
-    // TODO: we should never see invalid ids here.
-    // However, after an application fault like in the howto,
-    // at least one thread is joined multiple times
-    if (del_thread_it == threads.end() || parent_it == threads.end()) {
-#if MAKE_OUTPUT
-      std::cerr << "invalid thread IDs in join (" << parent << "," << child
-                << ")" << std::endl;
-#endif
-      return;
-    }
-
-    ts_ptr del_thread = del_thread_it->second;
-    VectorClock<>::Thread_Num del_thread_th_num =
-        del_thread_it->second->get_th_num();
-    ts_ptr par_thread = parent_it->second;
-
-    par_thread->update(*del_thread);
-
-    threads.erase(del_thread_it);  // no longer do the search
-    cleanup(del_thread_th_num);
-  }
-
-  // sync thread vc to lock vc
-  void acquire(tls_t tls, void* mutex, int recursive, bool write) final {
-    if (recursive >
-        1) {   // lock haven't been updated by another thread (by definition)
-      return;  // therefore no action needed here as only the invoking
-               // thread may have updated the lock
-    }
-
-    std::lock_guard<LockT> exLockT(g_lock);
-    auto it = locks.find(mutex);
-    if (it == locks.end()) {
-      it = createLock(mutex);
-    }
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    (thr)->update(it->second);
-  }
-
-  void release(tls_t tls, void* mutex, bool write) final {
-    std::lock_guard<LockT> exLockT(g_lock);
-    auto it = locks.find(mutex);
-    if (it == locks.end()) {
-#if MAKE_OUTPUT
-      std::cerr << "lock is released but was never acquired by any thread"
-                << std::endl;
-#endif
-      createLock(mutex);
-      return;  // as lock is empty (was never acquired), we can return here
-    }
-
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->inc_vc();
-
-    // increase vector clock and propagate to lock
-    it->second.update(thr);  // ThreadState* is VectorClock* (inheritance)
-  }
-
-  // identifier = TID of another thread, which happens before our thread
-  void happens_before(tls_t tls, void* identifier) final {
-    std::lock_guard<LockT> exLockT(g_lock);
-    auto it = happens_states.find(identifier);
-    if (it == happens_states.end()) {
-      it = create_happens(identifier);
-    }
-
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-
-    thr->inc_vc();  // increment clock of thread and update happens state
-    it->second.update(thr->get_th_num(), thr->return_own_id());
-    // calls update(Thread_Num th_num, VC_ID id)
-  }
-
-  void happens_after(tls_t tls, void* identifier) final {
-    {
-      std::lock_guard<LockT> exLockT(g_lock);
-      auto it = happens_states.find(identifier);
-      if (it == happens_states.end()) {
-        create_happens(identifier);
-        return;  // create -> no happens_before can be synced
-      } else {
-        ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-        // update vector clock of thread with happened before clocks
-        thr->update(it->second);  // calls update(VectorClock* other)
-      }
-    }
-  }
-
-  void allocate(tls_t tls, void* pc, void* addr, size_t size) final {
-#if REGARD_ALLOCS
-    size_t address = reinterpret_cast<size_t>(addr);
-    std::lock_guard<LockT> exLockT(g_lock);
-    if (allocs.find(address) == allocs.end()) {
-      create_alloc(address, size);
-    }
-#endif
-  }
-
-  // when we deallocate a variable we erase it from the VarState
-  void deallocate(tls_t tls, void* addr) final {
-#if REGARD_ALLOCS
-    size_t address = reinterpret_cast<size_t>(addr);
-    size_t end_addr;
-
-    std::lock_guard<LockT> exLockT(g_lock);
-    end_addr = address + allocs[address];  // allocs[address] = size;
-
-    // variable is deallocated so varstate objects can be destroyed
-    while (address < end_addr) {  // we go and deallocate each address
-      /*
-      Let's say we have a big vector that gets allocated. we track the
-      allocation, but we don't create the Var state objects for the
-      adresses. We create them 1 by 1 on each access. But when we deallocate
-      we clear all of them.*/
-      std::lock_guard<ipc::spinlock> lg(vars_spl);
-      if (vars.find(address) != vars.end()) {
-        // TODO: why does this exist ?
-        // auto& var = vars.find(address)->second;
-        vars.erase(address);
-        address++;
-      } else {
-        address++;
-      }
-    }
-    allocs.erase(address);
-#endif
-  }
-
-  void detach(tls_t tls, tid_t thread_id) final {
-    /// \todo This is currently not supported
-    return;
-  }
-
-  void finish(tls_t tls, tid_t thread_id) final {
-    std::lock_guard<LockT> exLockT(g_lock);
-    /// just delete thread from list, no backward sync needed
-    VectorClock<>::Thread_Num th_num;
-    auto thrit = threads.find(thread_id);
-    th_num = thrit->second->get_th_num();
-
-    threads.erase(thrit);
-    cleanup(th_num);
-  }
-
-  /**
-   * \note allocation of shadow memory is not required in this
-   *       detector. If a standalone version of Fasttrack is used
-   *       this function can be ignored
-   */
-  void map_shadow(void* startaddr, size_t size_in_bytes) final { return; }
-
-  const char* name() final { return "FASTTRACK"; }
-
-  const char* version() final { return "0.0.1"; }
 };
 }  // namespace detector
 }  // namespace drace
