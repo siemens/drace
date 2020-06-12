@@ -234,15 +234,12 @@ class Fasttrack : public Detector {
   }
 
   void read(tls_t tls, void* pc, void* addr, size_t size) final {
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
 #if PROF_INFO
-    PROF_START_BLOCK("set_read_write")
+    PROF_FUNCTION();
 #endif
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
     // thr->get_stackDepot().set_read_write((size_t)(addr),
     //                                     reinterpret_cast<size_t>(pc));
-#if PROF_INFO
-    PROF_END_BLOCK
-#endif
 
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(
@@ -282,6 +279,9 @@ class Fasttrack : public Detector {
   }
 
   void write(tls_t tls, void* pc, void* addr, size_t size) final {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
     // thr->get_stackDepot().set_read_write((size_t)addr,
     //                                     reinterpret_cast<size_t>(pc));
@@ -582,9 +582,6 @@ class Fasttrack : public Detector {
    * \note works only on calling-thread and var object, not on any list
    */
   void read(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
-#if PROF_INFO
-    PROF_FUNCTION();
-#endif
     if (t->return_own_id() ==
         v->get_read_id()) {  // read same epoch, same thread;
       if (log_flag) {
@@ -652,9 +649,6 @@ class Fasttrack : public Detector {
   void update_VarState(bool is_write, VectorClock<>::VC_ID id, VarState* v,
                        std::size_t addr,
                        xvector<VectorClock<>::VC_ID>* shared_vc) {
-#if PROF_INFO
-    PROF_FUNCTION();
-#endif
     if (is_write) {  // we have to do shared_vcs.erase() here
                      // shared_vcs_it is for sure a phmap::iterator
       if (shared_vc != nullptr) {
@@ -696,9 +690,6 @@ class Fasttrack : public Detector {
    * \note works only on calling-thread and var object, not on any list
    */
   void write(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
-#if PROF_INFO
-    PROF_FUNCTION();
-#endif
     if (t->return_own_id() == v->get_write_id()) {  // write same epoch
       if (log_flag) {
         log_count.write_same_epoch++;
@@ -761,9 +752,6 @@ class Fasttrack : public Detector {
    * written for the first time) \note Invariant: vars table is locked
    */
   inline auto create_var(size_t addr) {
-#if PROF_INFO
-    PROF_FUNCTION()
-#endif
     if (log_flag) {
       log_count.no_allocatedVarStates++;
     }
