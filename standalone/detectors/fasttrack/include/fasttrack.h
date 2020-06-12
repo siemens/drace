@@ -18,7 +18,6 @@
 #include <iostream>
 #include <mutex>   // for lock_guard
 #include <random>  // for removeRandomVarState
-#include <shared_mutex>
 #include "parallel_hashmap/phmap.h"
 #include "stacktrace.h"
 #include "threadstate.h"
@@ -34,7 +33,6 @@
 Define for easier debugging and profiling for optimization
 ---------------------------------------------------------------------
 */
-
 #define PROF_INFO true
 #if PROF_INFO
 #include "prof.h"
@@ -81,13 +79,16 @@ class Fasttrack : public Detector {
   Callback clb;
 
   /// central lock, used for accesses to global tables except vars (order: 1)
-  LockT g_lock;  // global Lock
+  LockT g_lock;
 
   /// spinlock to protect accesses to vars table (order: 2)
   mutable ipc::spinlock vars_spl;
 
-  // Variables to be defined via the external framework
-
+  /*
+---------------------------------------------------------------------
+ Variables to be defined via an external framework
+---------------------------------------------------------------------
+*/
   /// switch logging of read/write operations
   bool log_flag = true;
   bool final_output = (true && log_flag);
@@ -97,37 +98,44 @@ class Fasttrack : public Detector {
   bool _flag_removeDropSubMaps = (false && DELETE_POLICY);
   bool _flag_removeRandomVarStates = (true && DELETE_POLICY);
   bool _flag_removeLowestClockVarStates = (false && DELETE_POLICY);
-  std::size_t vars_size = 50000;  // optimal threshold
-  /*
- ---------------------------------------------------------------------
- shared_vcs maps addr to the status of read_shared. we use node, because while
- an address has a pointer, another one may add to the HashMap, as the locks
- are on address => we might invalidate our pointers from aanother adress
- ---------------------------------------------------------------------
- */
+  std::size_t vars_size = 50000;  // TODO: optimal threshold
+
   template <class K, class V>
   using phmap_parallel_node_hash_map = phmap::parallel_node_hash_map<
       K, V, phmap::container_internal::hash_default_hash<K>,
       phmap::container_internal::hash_default_eq<K>,
       std::allocator<std::pair<const K, V>>, 4, ipc::spinlock>;
 
-  phmap_parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_ID>>
-      shared_vcs;
-  std::array<ipc::spinlock, 1024> spinlocks;
-  VectorClock<>::Clock _last_min_th_clock = -1;
-
   /// these maps hold the various state objects together with the identifiers
   phmap::parallel_flat_hash_map<size_t, size_t> allocs;
-  // we have to use a node hash map here, as we access the nodes from multiple
-  // threads, while the map might grow in the meantime.
+
+  // shared_vcs maps addr to the status of read_shared. we use node, because
+  // while an address has a pointer, another one may add to the HashMap,
+  // as the locks are on address => we might invalidate our pointers from
+  // another adress
+  phmap_parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_ID>>
+      shared_vcs;
+
+  // we have to use a node hash map here, as we access it from multiple
+  // threads => the HashMap might grow in the meantime => we would
+  // invalidate our pointers unless we use a node map
   phmap::parallel_node_hash_map<size_t, VarState> vars;
+
   // number of locks, threads is expected to be < 1000, hence use one map
   // (without submaps)
   phmap::flat_hash_map<void*, VectorClock<>> locks;
   phmap::flat_hash_map<tid_ft, ts_ptr> threads;
   phmap::parallel_flat_hash_map<void*, VectorClock<>> happens_states;
 
-public:
+  /// pool of spinlocks used to synchronize threads when accessing vars HashMap
+  /// based on the addr that they need from the Map
+  std::array<ipc::spinlock, 1024> spinlocks;
+
+  // used in removeUselessVarStates to skip the run through the HashMap unless
+  // the last_min_th_clock modified from the last check
+  VectorClock<>::Clock _last_min_th_clock = -1;
+
+ public:
   explicit Fasttrack() = default;
 
   bool init(int argc, const char** argv, Callback rc_clb) final {
@@ -200,15 +208,13 @@ public:
         VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
         if (_last_min_th_clock == tmp) {
           consider_useless *= 2;
-        }
-        else {
+        } else {
           _last_min_th_clock = tmp;
           consider_useless = 1;
         }
         should_call = 1;
         return;
-      }
-      else {
+      } else {
         should_call++;
       }
     }
@@ -242,8 +248,8 @@ public:
 #if PROF_INFO
     PROF_START_BLOCK("set_read_write")
 #endif
-      thr->get_stackDepot().set_read_write((size_t)(addr),
-        reinterpret_cast<size_t>(pc));
+    thr->get_stackDepot().set_read_write((size_t)(addr),
+                                         reinterpret_cast<size_t>(pc));
 #if PROF_INFO
     PROF_END_BLOCK
 #endif
@@ -255,13 +261,11 @@ public:
       VarState* var;
       {  // finds the VarState instance of a specific addr or creates it
         std::lock_guard<ipc::spinlock> exLockT(vars_spl);
-
 #if DELETE_POLICY
         if (vars.size() >= vars_size) {
           clearVarStates();
         }
 #endif
-
         auto it = vars.find((size_t)addr);
         if (it == vars.end()) {
 #if MAKE_OUTPUT
@@ -279,22 +283,20 @@ public:
   void write(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
     thr->get_stackDepot().set_read_write((size_t)addr,
-      reinterpret_cast<size_t>(pc));
+                                         reinterpret_cast<size_t>(pc));
 
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(
-        spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
+          spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
 
       VarState* var;
-      {  // lock to access the vars HashMap
+      {  // finds the VarState instance of a specific addr or creates it
         std::lock_guard<ipc::spinlock> exLockT(vars_spl);
-
 #if DELETE_POLICY
         if (vars.size() >= vars_size) {
           clearVarStates();
         }
 #endif
-
         auto it = vars.find((size_t)addr);
         if (it == vars.end()) {
           it = create_var((size_t)(addr));
@@ -325,8 +327,7 @@ public:
         thrit->second->inc_vc();  // inc vector clock for creation of new thread
       }
       thr = create_thread(child, threads[parent]);
-    }
-    else {
+    } else {
       thr = create_thread(child);
     }
     *tls = reinterpret_cast<tls_t>(thr);
@@ -342,14 +343,14 @@ public:
     if (del_thread_it == threads.end() || parent_it == threads.end()) {
 #if MAKE_OUTPUT
       std::cerr << "invalid thread IDs in join (" << parent << "," << child
-        << ")" << std::endl;
+                << ")" << std::endl;
 #endif
       return;
     }
 
     ts_ptr del_thread = del_thread_it->second;
     VectorClock<>::Thread_Num del_thread_th_num =
-      del_thread_it->second->get_th_num();
+        del_thread_it->second->get_th_num();
     ts_ptr par_thread = parent_it->second;
 
     par_thread->update(*del_thread);
@@ -361,7 +362,7 @@ public:
   // sync thread vc to lock vc
   void acquire(tls_t tls, void* mutex, int recursive, bool write) final {
     if (recursive >
-      1) {   // lock haven't been updated by another thread (by definition)
+        1) {   // lock haven't been updated by another thread (by definition)
       return;  // therefore no action needed here as only the invoking
                // thread may have updated the lock
     }
@@ -381,7 +382,7 @@ public:
     if (it == locks.end()) {
 #if MAKE_OUTPUT
       std::cerr << "lock is released but was never acquired by any thread"
-        << std::endl;
+                << std::endl;
 #endif
       createLock(mutex);
       return;  // as lock is empty (was never acquired), we can return here
@@ -416,8 +417,7 @@ public:
       if (it == happens_states.end()) {
         create_happens(identifier);
         return;  // create -> no happens_before can be synced
-      }
-      else {
+      } else {
         ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
         // update vector clock of thread with happened before clocks
         thr->update(it->second);  // calls update(VectorClock* other)
@@ -445,7 +445,7 @@ public:
     end_addr = address + allocs[address];  // allocs[address] = size;
 
     // variable is deallocated so varstate objects can be destroyed
-    while (address < end_addr) {  // we go and deallocate each address
+    while (address < end_addr) {  // we deallocate each address
       /*
       Let's say we have a big vector that gets allocated. we track the
       allocation, but we don't create the Var state objects for the
@@ -457,8 +457,7 @@ public:
         // auto& var = vars.find(address)->second;
         vars.erase(address);
         address++;
-      }
-      else {
+      } else {
         address++;
       }
     }
@@ -493,8 +492,7 @@ public:
 
   const char* version() final { return "0.0.1"; }
 
-private:
-
+ private:
   constexpr std::size_t hashOf(std::size_t addr) const { return (addr >> 4); }
 
   /**
@@ -960,7 +958,7 @@ private:
     }
   }
 
- public: //the log counters are public for testing
+ public:  // the log counters are public for testing
   /// statistics
   struct log_counters {
     uint32_t read_ex_same_epoch = 0;
@@ -985,7 +983,7 @@ private:
     std::size_t dropSubMap_calls = 0;
   } log_count;
 
-private:
+ private:
   /// print statistics about rule-hits
   void process_log_output() const {
     double read_actions, write_actions;
@@ -993,10 +991,10 @@ private:
     double rd, wr, r_ex_se, r_sh_se, r_ex, r_share, r_shared, w_se, w_ex, w_sh;
 
     read_actions = log_count.read_ex_same_epoch + log_count.read_sh_same_epoch +
-      log_count.read_exclusive + log_count.read_share +
-      log_count.read_shared;
+                   log_count.read_exclusive + log_count.read_share +
+                   log_count.read_shared;
     write_actions = log_count.write_same_epoch + log_count.write_exclusive +
-      log_count.write_shared;
+                    log_count.write_shared;
 
     rd = (read_actions / (read_actions + write_actions)) * 100;
     wr = 100 - rd;
@@ -1010,57 +1008,56 @@ private:
     w_sh = (log_count.write_shared / write_actions) * 100;
 
     std::cout << "FASTTRACK_STATISTICS: All values are percentages!"
-      << std::endl;
+              << std::endl;
     std::cout << std::fixed << std::setprecision(2) << "Read Actions: " << rd
-      << std::endl;
+              << std::endl;
     std::cout << "Of which: " << std::endl;
     std::cout << std::fixed << std::setprecision(2)
-      << "Read exclusive same epoch: " << r_ex_se << std::endl;
+              << "Read exclusive same epoch: " << r_ex_se << std::endl;
     std::cout << std::fixed << std::setprecision(2)
-      << "Read shared same epoch: " << r_sh_se << std::endl;
+              << "Read shared same epoch: " << r_sh_se << std::endl;
     std::cout << std::fixed << std::setprecision(2)
-      << "Read exclusive: " << r_ex << std::endl;
+              << "Read exclusive: " << r_ex << std::endl;
     std::cout << std::fixed << std::setprecision(2) << "Read share: " << r_share
-      << std::endl;
+              << std::endl;
     std::cout << std::fixed << std::setprecision(2)
-      << "Read shared: " << r_shared << std::endl;
+              << "Read shared: " << r_shared << std::endl;
     std::cout << std::endl;
     std::cout << std::fixed << std::setprecision(2) << "Write Actions: " << wr
-      << std::endl;
+              << std::endl;
     std::cout << "Of which: " << std::endl;
     std::cout << std::fixed << std::setprecision(2)
-      << "Write same epoch: " << w_se << std::endl;
+              << "Write same epoch: " << w_se << std::endl;
     std::cout << std::fixed << std::setprecision(2)
-      << "Write exclusive: " << w_ex << std::endl;
+              << "Write exclusive: " << w_ex << std::endl;
     std::cout << std::fixed << std::setprecision(2) << "Write shared: " << w_sh
-      << std::endl;
+              << std::endl;
     std::cout << "====----------- FASTTRACK_DETAILS: Values are absolute! "
-      "-----------===="
-      << std::endl;
+                 "-----------===="
+              << std::endl;
     std::cout << "vars_size: " << vars_size << std::endl;
     std::cout << "removeUselessVarStates calls: "
-      << log_count.removeUselessVarStates_calls << std::endl;
+              << log_count.removeUselessVarStates_calls << std::endl;
     std::cout << "removeRandomVarStates calls: "
-      << log_count.removeRandomVarStates_calls << std::endl;
+              << log_count.removeRandomVarStates_calls << std::endl;
     std::cout << "removeVarStates calls: " << log_count.removeVarStates_calls
-      << std::endl;
+              << std::endl;
     std::cout << "dropSubMap_calls calls: " << log_count.dropSubMap_calls
-      << std::endl;
+              << std::endl;
     std::cout << "no4_Useful_VarStates_removed: "
-      << log_count.no_Useful_VarStates_removed << std::endl;
+              << log_count.no_Useful_VarStates_removed << std::endl;
     std::cout << "no_Useless_VarStates_removed: "
-      << log_count.no_Useless_VarStates_removed << std::endl;
+              << log_count.no_Useless_VarStates_removed << std::endl;
     std::cout << "no_Random_VarStates_removed: "
-      << log_count.no_Random_VarStates_removed << std::endl;
+              << log_count.no_Random_VarStates_removed << std::endl;
     std::cout << "number of allocated VarStates: "
-      << log_count.no_allocatedVarStates << std::endl;
+              << log_count.no_allocatedVarStates << std::endl;
     std::cout << "wr_race: " << log_count.wr_race << std::endl;
     std::cout << "rw_sh_race: " << log_count.rw_sh_race << std::endl;
     std::cout << "ww_race: " << log_count.ww_race << std::endl;
     std::cout << "rw_ex_race: " << log_count.rw_ex_race << std::endl;
     std::cout << std::endl;
   }
-
 };
 }  // namespace detector
 }  // namespace drace
