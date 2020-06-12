@@ -1,10 +1,11 @@
+#include "prof.h"
 #include <fasttrack.h>
 #include <numeric>
 #include <queue>
 #include <random>
-#include <deque>
-#include "parallel_hashmap/phmap.h"
 #include <unordered_map>
+#include "parallel_hashmap/phmap.h"
+#include <deque>
 
 #define deb(x) std::cout << #x << " = " << std::setw(3) << x << " "
 
@@ -64,6 +65,7 @@ int main() {
 }
 
 void test_overflow() {
+  ProfTimer timer;
   VC_ID test;
 
   test.TID = 10;
