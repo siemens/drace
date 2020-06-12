@@ -124,8 +124,7 @@ class VectorClock {
     auto it = thread_ids.find(static_cast<Thread_Num>(th_num));
     if (it != thread_ids.end()) {
       return static_cast<TID>(it->second);
-    }
-    else {  // we should never reach this one
+    } else {  // we should never reach this one
       return -1;
     }
   }
