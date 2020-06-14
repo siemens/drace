@@ -1,4 +1,3 @@
-#include "prof.h"
 #include <fasttrack.h>
 #include <numeric>
 #include <queue>
@@ -65,7 +64,6 @@ int main() {
 }
 
 void test_overflow() {
-  ProfTimer timer;
   VC_ID test;
 
   test.TID = 10;
