@@ -290,21 +290,20 @@ class Fasttrack : public Detector {
   }
 
   void set_read_write(VarState* var, ThreadState* thr, void* pc) {
-    #if PROF_INFO
-        PROF_FUNCTION();
-    #endif
-        auto rw_it = var->_read_write.find(reinterpret_cast<void*>(thr));
-        if (rw_it == var->_read_write.end()) {
-          var->_read_write.emplace(
-            reinterpret_cast<void*>(thr),
-            std::make_pair(reinterpret_cast<size_t>(pc),
-              thr->get_stackDepot().get_current_element()));
-        }
-        else {
-          rw_it->second =
-            std::make_pair(reinterpret_cast<size_t>(pc),
-              thr->get_stackDepot().get_current_element());
-        }
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
+    auto rw_it = var->_read_write.find(reinterpret_cast<void*>(thr));
+    if (rw_it == var->_read_write.end()) {
+      var->_read_write.emplace(
+          reinterpret_cast<void*>(thr),
+          std::make_pair(reinterpret_cast<size_t>(pc),
+                         thr->get_stackDepot().get_current_element()));
+    } else {
+      rw_it->second =
+          std::make_pair(reinterpret_cast<size_t>(pc),
+                         thr->get_stackDepot().get_current_element());
+    }
   }
 
   void func_enter(tls_t tls, void* pc) final {
@@ -749,8 +748,7 @@ class Fasttrack : public Detector {
     if (log_flag) {
       log_count.no_allocatedVarStates++;
     }
-    return vars.emplace(addr, VarState())
-        .first;
+    return vars.emplace(addr, VarState()).first;
   }
 
   /// creates a new lock object (is called when a lock is acquired or released
@@ -955,15 +953,12 @@ class Fasttrack : public Detector {
   /// returns a stack trace of a clock for handing it over to drace
   std::list<size_t> return_stack_trace(const VarState& var,
                                        ThreadState* t) const {
-     std::lock_guard<ipc::spinlock> lg1(StackTrace::lock);
-    // std::lock_guard<ipc::spinlock> lg2(vars_spl);
+    std::lock_guard<ipc::spinlock> lg1(StackTrace::lock);
     auto data = var._read_write.find(reinterpret_cast<void*>(t))->second;
     return t->get_stackDepot().make_trace(data);
     // A read/write operation was not tracked correctly => return empty
     // stacktrace
     return {};
-    //std::list<size_t> l { log_count.read_ex_same_epoch,log_count.write_same_epoch,3};
-    //return l;
   }
 
  public:  // the log counters are public for testing
