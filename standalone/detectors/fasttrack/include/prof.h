@@ -8,6 +8,13 @@
 #include <string>
 #include "parallel_hashmap/phmap.h"
 
+/*
+---------------------------------------------------------------------
+Header file that defines the profiling class ProfTimer used to
+benchmark code on the principle of RAII.
+---------------------------------------------------------------------
+*/
+
 #define PROF_START_BLOCK(name) \
   {                            \
     ProfTimer(name);

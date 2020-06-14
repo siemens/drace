@@ -234,12 +234,7 @@ class Fasttrack : public Detector {
   }
 
   void read(tls_t tls, void* pc, void* addr, size_t size) final {
-#if PROF_INFO
-    PROF_FUNCTION();
-#endif
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    // thr->get_stackDepot().set_read_write((size_t)(addr),
-    //                                     reinterpret_cast<size_t>(pc));
 
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(
@@ -262,29 +257,14 @@ class Fasttrack : public Detector {
           it = create_var((size_t)(addr));
         }
         var = &(it->second);
-        auto rw_it = var->_read_write.find(reinterpret_cast<void*>(thr));
-        if (rw_it == var->_read_write.end()) {
-          var->_read_write.emplace(
-              reinterpret_cast<void*>(thr),
-              std::make_pair(reinterpret_cast<size_t>(pc),
-                             thr->get_stackDepot().get_current_element()));
-        } else {
-          rw_it->second =
-              std::make_pair(reinterpret_cast<size_t>(pc),
-                             thr->get_stackDepot().get_current_element());
-        }
+        set_read_write(var, thr, pc);
       }
       read(thr, var, (size_t)addr, size);
     }
   }
 
   void write(tls_t tls, void* pc, void* addr, size_t size) final {
-#if PROF_INFO
-    PROF_FUNCTION();
-#endif
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    // thr->get_stackDepot().set_read_write((size_t)addr,
-    //                                     reinterpret_cast<size_t>(pc));
 
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(
@@ -303,20 +283,28 @@ class Fasttrack : public Detector {
           it = create_var((size_t)(addr));
         }
         var = &(it->second);
-        auto rw_it = var->_read_write.find(reinterpret_cast<void*>(thr));
-        if (rw_it == var->_read_write.end()) {
-          var->_read_write.emplace(
-              reinterpret_cast<void*>(thr),
-              std::make_pair(reinterpret_cast<size_t>(pc),
-                             thr->get_stackDepot().get_current_element()));
-        } else {
-          rw_it->second =
-              std::make_pair(reinterpret_cast<size_t>(pc),
-                             thr->get_stackDepot().get_current_element());
-        }
+        set_read_write(var, thr, pc);
       }
       write(thr, var, (size_t)addr, size);
     }
+  }
+
+  void set_read_write(VarState* var, ThreadState* thr, void* pc) {
+    #if PROF_INFO
+        PROF_FUNCTION();
+    #endif
+        auto rw_it = var->_read_write.find(reinterpret_cast<void*>(thr));
+        if (rw_it == var->_read_write.end()) {
+          var->_read_write.emplace(
+            reinterpret_cast<void*>(thr),
+            std::make_pair(reinterpret_cast<size_t>(pc),
+              thr->get_stackDepot().get_current_element()));
+        }
+        else {
+          rw_it->second =
+            std::make_pair(reinterpret_cast<size_t>(pc),
+              thr->get_stackDepot().get_current_element());
+        }
   }
 
   void func_enter(tls_t tls, void* pc) final {
@@ -582,6 +570,9 @@ class Fasttrack : public Detector {
    * \note works only on calling-thread and var object, not on any list
    */
   void read(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     if (t->return_own_id() ==
         v->get_read_id()) {  // read same epoch, same thread;
       if (log_flag) {
@@ -690,6 +681,9 @@ class Fasttrack : public Detector {
    * \note works only on calling-thread and var object, not on any list
    */
   void write(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     if (t->return_own_id() == v->get_write_id()) {  // write same epoch
       if (log_flag) {
         log_count.write_same_epoch++;
@@ -756,7 +750,7 @@ class Fasttrack : public Detector {
       log_count.no_allocatedVarStates++;
     }
     return vars.emplace(addr, VarState())
-        .first;  //, static_cast<uint16_t>(size)
+        .first;
   }
 
   /// creates a new lock object (is called when a lock is acquired or released
@@ -961,13 +955,15 @@ class Fasttrack : public Detector {
   /// returns a stack trace of a clock for handing it over to drace
   std::list<size_t> return_stack_trace(const VarState& var,
                                        ThreadState* t) const {
-    //std::lock_guard<ipc::spinlock> lg1(StackTrace::lock);
-    //std::lock_guard<ipc::spinlock> lg2(vars_spl);
+     std::lock_guard<ipc::spinlock> lg1(StackTrace::lock);
+    // std::lock_guard<ipc::spinlock> lg2(vars_spl);
     auto data = var._read_write.find(reinterpret_cast<void*>(t))->second;
     return t->get_stackDepot().make_trace(data);
     // A read/write operation was not tracked correctly => return empty
     // stacktrace
     return {};
+    //std::list<size_t> l { log_count.read_ex_same_epoch,log_count.write_same_epoch,3};
+    //return l;
   }
 
  public:  // the log counters are public for testing
