@@ -5,8 +5,6 @@
 #include <iostream>
 #include <iomanip>
 
-#define DEBUG_INFO false
-
 #define deb(x) std::cout << #x << " = " << std::setw(3) << std::dec << x << " "
 #define deb_hex(x) \
   std::cout << #x << " = 0x" << std::hex << x << std::dec << " "

@@ -28,18 +28,23 @@
 #define MAKE_OUTPUT false
 #define POOL_ALLOC false
 
+#define PROF_INFO false
+#define DEBUG_INFO false
+
 /*
 ---------------------------------------------------------------------
 Define for easier debugging and profiling for optimization
 ---------------------------------------------------------------------
 */
-#define PROF_INFO false
+
 #if PROF_INFO
 #include "prof.h"
 #endif
 
-/// switch debugging of the tool ON & OFF to generate debug code
+/// include to generate debug code
+#if DEBUG_INFO
 #include "debug.h"
+#endif
 
 ///\todo implement a pool allocator
 #if POOL_ALLOC
@@ -135,101 +140,11 @@ class Fasttrack : public Detector {
     return true;
   }
 
-  void finalize() final {
-    std::lock_guard<LockT> lg1(g_lock);
-    {
-      std::lock_guard<ipc::spinlock> lg2(vars_spl);
-
-      vars.clear();
-    }
-    locks.clear();
-    happens_states.clear();
-    allocs.clear();
-    threads.clear();
-    shared_vcs.clear();
-    VectorClock<>::thread_ids.clear();
-
-    if (final_output) process_log_output();
-#if PROF_INFO
-    ProfTimer::Print();
-#endif
-  }
-
   // helper funtion for a unit_test -> might have its usage later
   void clearVarState(std::size_t addr) {
     auto it = vars.find((size_t)(addr));
     if (it != vars.end()) {
       vars.erase(it);
-    }
-  }
-
-  inline void clearVarStates() {
-#if DEBUG_INFO
-    static int clearVarStates_calls = 0;
-    clearVarStates_calls++;
-    if (clearVarStates_calls % 50 == 0) {
-      std::cout << "====----------- clearVarStates call -----------====";
-      newline();
-      deb_short(vars.size());
-      deb_short(vars.capacity());
-      deb_short(_last_min_th_clock);
-      deb_short(threads.size());
-      newline();
-      deb_long(log_count.removeUselessVarStates_calls);
-      deb_long(log_count.removeRandomVarStates_calls);
-      deb_long(log_count.removeVarStates_calls);
-      newline();
-      deb_long(log_count.no_Useless_VarStates_removed);
-      deb_long(log_count.no_Useful_VarStates_removed);
-      deb_long(log_count.no_Random_VarStates_removed);
-      newline();
-      std::this_thread::sleep_for(std::chrono::seconds(5));
-    }
-#endif
-
-    if (_flag_removeUselessVarStates) {
-      static uint32_t should_call = 1;
-      static uint32_t consider_useless = 1;
-#if DEBUG_INFO
-      // deb(consider_useless);
-      // deb(should_call);
-#endif
-      if (should_call >= consider_useless) {
-        VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
-        if (_last_min_th_clock == tmp) {
-          consider_useless *= 2;
-        } else {
-          _last_min_th_clock = tmp;
-          consider_useless = 1;
-        }
-        should_call = 1;
-        return;
-      } else {
-        should_call++;
-      }
-    }
-    if (_flag_removeDropSubMaps) {
-      constexpr size_t mask = 0xFull;
-      static size_t index = 0;
-      vars.dropSubMap((index & mask));
-      index++;
-      if (log_flag) {
-        log_count.dropSubMap_calls++;
-      }
-#if DEBUG_INFO
-      vars.list_characteristics();
-      static int no_call = 1;
-      no_call++;
-      if (no_call % 10 == 0) {
-        std::this_thread::sleep_for(std::chrono::seconds(5));
-      }
-#endif
-    }
-    if (_flag_removeRandomVarStates) {
-      removeRandomVarStates();
-    }
-    if (_flag_removeLowestClockVarStates) {
-      removeVarStates();
     }
   }
 
@@ -257,8 +172,8 @@ class Fasttrack : public Detector {
           it = create_var((size_t)(addr));
         }
         var = &(it->second);
-        set_read_write(var, thr, pc);
       }
+      set_read_write(var, thr, pc);
       read(thr, var, (size_t)addr, size);
     }
   }
@@ -283,26 +198,9 @@ class Fasttrack : public Detector {
           it = create_var((size_t)(addr));
         }
         var = &(it->second);
-        set_read_write(var, thr, pc);
       }
+      set_read_write(var, thr, pc);
       write(thr, var, (size_t)addr, size);
-    }
-  }
-
-  void set_read_write(VarState* var, ThreadState* thr, void* pc) {
-#if PROF_INFO
-    PROF_FUNCTION();
-#endif
-    auto rw_it = var->_read_write.find(reinterpret_cast<void*>(thr));
-    if (rw_it == var->_read_write.end()) {
-      var->_read_write.emplace(
-          reinterpret_cast<void*>(thr),
-          std::make_pair(reinterpret_cast<size_t>(pc),
-                         thr->get_stackDepot().get_current_element()));
-    } else {
-      rw_it->second =
-          std::make_pair(reinterpret_cast<size_t>(pc),
-                         thr->get_stackDepot().get_current_element());
     }
   }
 
@@ -442,18 +340,16 @@ class Fasttrack : public Detector {
 
     std::lock_guard<LockT> exLockT(g_lock);
     end_addr = address + allocs[address];  // allocs[address] = size;
+    //TODO: use allocs.find
 
     // variable is deallocated so varstate objects can be destroyed
     while (address < end_addr) {  // we deallocate each address
-      /*
-      Let's say we have a big vector that gets allocated. we track the
+      /* Let's say we have a big vector that gets allocated. we track the
       allocation, but we don't create the Var state objects for the
       adresses. We create them 1 by 1 on each access. But when we deallocate
       we clear all of them.*/
       std::lock_guard<ipc::spinlock> lg(vars_spl);
       if (vars.find(address) != vars.end()) {
-        // TODO: why does this exist ?
-        // auto& var = vars.find(address)->second;
         vars.erase(address);
         address++;
       } else {
@@ -478,6 +374,26 @@ class Fasttrack : public Detector {
 
     threads.erase(thrit);
     cleanup(th_num);
+  }
+
+  void finalize() final {
+    std::lock_guard<LockT> lg1(g_lock);
+    {
+      std::lock_guard<ipc::spinlock> lg2(vars_spl);
+
+      vars.clear();
+    }
+    locks.clear();
+    happens_states.clear();
+    allocs.clear();
+    threads.clear();
+    shared_vcs.clear();
+    VectorClock<>::thread_ids.clear();
+
+    if (final_output) process_log_output();
+#if PROF_INFO
+    ProfTimer::Print();
+#endif
   }
 
   /**
@@ -824,6 +740,76 @@ class Fasttrack : public Detector {
     }
   }
 
+  inline void clearVarStates() {
+#if DEBUG_INFO
+    static int clearVarStates_calls = 0;
+    clearVarStates_calls++;
+    if (clearVarStates_calls % 50 == 0) {
+      std::cout << "====----------- clearVarStates call -----------====";
+      newline();
+      deb_short(vars.size());
+      deb_short(vars.capacity());
+      deb_short(_last_min_th_clock);
+      deb_short(threads.size());
+      newline();
+      deb_long(log_count.removeUselessVarStates_calls);
+      deb_long(log_count.removeRandomVarStates_calls);
+      deb_long(log_count.removeVarStates_calls);
+      newline();
+      deb_long(log_count.no_Useless_VarStates_removed);
+      deb_long(log_count.no_Useful_VarStates_removed);
+      deb_long(log_count.no_Random_VarStates_removed);
+      newline();
+      std::this_thread::sleep_for(std::chrono::seconds(5));
+    }
+#endif
+
+    if (_flag_removeUselessVarStates) {
+      static uint32_t should_call = 1;
+      static uint32_t consider_useless = 1;
+#if DEBUG_INFO
+      // deb(consider_useless);
+      // deb(should_call);
+#endif
+      if (should_call >= consider_useless) {
+        VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
+        if (_last_min_th_clock == tmp) {
+          consider_useless *= 2;
+        } else {
+          _last_min_th_clock = tmp;
+          consider_useless = 1;
+        }
+        should_call = 1;
+        return;
+      } else {
+        should_call++;
+      }
+    }
+    if (_flag_removeDropSubMaps) {
+      constexpr size_t mask = 0xFull;
+      static size_t index = 0;
+      vars.dropSubMap((index & mask));
+      index++;
+      if (log_flag) {
+        log_count.dropSubMap_calls++;
+      }
+#if DEBUG_INFO
+      vars.list_characteristics();
+      static int no_call = 1;
+      no_call++;
+      if (no_call % 10 == 0) {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+      }
+#endif
+    }
+    if (_flag_removeRandomVarStates) {
+      removeRandomVarStates();
+    }
+    if (_flag_removeLowestClockVarStates) {
+      removeVarStates();
+    }
+  }
+
   VectorClock<>::Clock removeUselessVarStates(
       VectorClock<>::Clock last_min_th_clock) {
 #if PROF_INFO
@@ -947,6 +933,23 @@ class Fasttrack : public Detector {
           log_count.no_Useful_VarStates_removed++;
         }
       }
+    }
+  }
+
+  inline void set_read_write(VarState* var, ThreadState* thr, void* pc) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
+    auto rw_it = var->_read_write.find(reinterpret_cast<void*>(thr));
+    if (rw_it == var->_read_write.end()) {
+      var->_read_write.emplace(
+          reinterpret_cast<void*>(thr),
+          std::make_pair(reinterpret_cast<size_t>(pc),
+                         thr->get_stackDepot().get_current_element()));
+    } else {
+      rw_it->second =
+          std::make_pair(reinterpret_cast<size_t>(pc),
+                         thr->get_stackDepot().get_current_element());
     }
   }
 
