@@ -43,7 +43,9 @@ class VarState {
     VertexProperty> StackTree;
 
   /// holds var_address, pc, stack_length
-  phmap::flat_hash_map<void*, std::pair<size_t, StackTree::vertex_descriptor>> _read_write; //{pc, _ce}
+  //phmap::flat_hash_map<void*, std::pair<size_t, StackTree::vertex_descriptor>> _read_write; //{pc, _ce}
+
+  std::vector<std::pair<size_t, StackTree::vertex_descriptor>> _read_write;
 
   VarState() = default;
 

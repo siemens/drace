@@ -340,7 +340,7 @@ class Fasttrack : public Detector {
 
     std::lock_guard<LockT> exLockT(g_lock);
     end_addr = address + allocs[address];  // allocs[address] = size;
-    //TODO: use allocs.find
+    // TODO: use allocs.find
 
     // variable is deallocated so varstate objects can be destroyed
     while (address < end_addr) {  // we deallocate each address
@@ -940,24 +940,26 @@ class Fasttrack : public Detector {
 #if PROF_INFO
     PROF_FUNCTION();
 #endif
-    auto rw_it = var->_read_write.find(reinterpret_cast<void*>(thr));
-    if (rw_it == var->_read_write.end()) {
-      var->_read_write.emplace(
-          reinterpret_cast<void*>(thr),
-          std::make_pair(reinterpret_cast<size_t>(pc),
-                         thr->get_stackDepot().get_current_element()));
-    } else {
-      rw_it->second =
-          std::make_pair(reinterpret_cast<size_t>(pc),
-                         thr->get_stackDepot().get_current_element());
+    VectorClock<>::Thread_Num th_num = thr->get_th_num();
+
+    if (var->_read_write.capacity() < threads.size()) {
+      var->_read_write.reserve(threads.size() * 2);
+      while (var->_read_write.size() < var->_read_write.capacity()) {
+        var->_read_write.emplace_back(std::make_pair(0,0));
+      }
     }
+
+    // th_num start from 1, not from 0, because of something I needed to
+    // identify races in a read_shared state
+    var->_read_write[th_num - 1] = std::make_pair(reinterpret_cast<size_t>(pc),
+                                    thr->get_stackDepot().get_current_element());
   }
 
   /// returns a stack trace of a clock for handing it over to drace
   std::list<size_t> return_stack_trace(const VarState& var,
                                        ThreadState* t) const {
     std::lock_guard<ipc::spinlock> lg1(StackTrace::lock);
-    auto data = var._read_write.find(reinterpret_cast<void*>(t))->second;
+    auto data = var._read_write[t->get_th_num() - 1];
     return t->get_stackDepot().make_trace(data);
     // A read/write operation was not tracked correctly => return empty
     // stacktrace

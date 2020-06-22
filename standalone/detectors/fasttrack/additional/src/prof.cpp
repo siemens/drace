@@ -5,6 +5,7 @@
 #include <deque>
 #include "parallel_hashmap/phmap.h"
 #include <unordered_map>
+#include "debug.h"
 
 #define deb(x) std::cout << #x << " = " << std::setw(3) << x << " "
 
@@ -51,13 +52,43 @@ int main() {
   //}
   //std::cout << std::endl;
 
-  uint32_t value = 1;
-  TH_NO th_no;
-  th_no.num = value;
-  std::cout << th_no.num << std::endl;
-  value = 1025;
-  th_no.num = value;
-  std::cout << th_no.num << std::endl;
+  //uint32_t value = 1;
+  //TH_NO th_no;
+  //th_no.num = value;
+  //std::cout << th_no.num << std::endl;
+  //value = 1025;
+  //th_no.num = value;
+  //std::cout << th_no.num << std::endl;
+
+  std::vector<int> vec;
+  //vec.reserve(10);
+  //vec.emplace_back(3);
+  //deb(vec.capacity());
+
+  //vec.reserve(50);
+  //deb(vec.capacity());
+
+  //vec.reserve(2);
+  //deb(vec.capacity());
+
+  deb(vec.size());
+  deb(vec.capacity());
+  vec.emplace_back(3);
+  vec.emplace_back(4);
+  vec.emplace_back(5);
+  vec.emplace_back(6);
+  vec.reserve(10);
+  std::vector<int> vec2(100,0);
+  //vec2 = std::move(vec);
+  vec.at(8);
+  deb(vec2.size());
+  deb(vec2.capacity());
+  deb(vec.size());
+  deb(vec.capacity());
+  
+  for (auto& x : vec) {
+    deb(x);
+  }
 
   std::cin.get();
   return 0;
