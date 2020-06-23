@@ -942,8 +942,8 @@ class Fasttrack : public Detector {
 #endif
     VectorClock<>::Thread_Num th_num = thr->get_th_num();
 
-    if (var->_read_write.capacity() < threads.size()) {
-      var->_read_write.reserve(threads.size() * 2);
+    if (var->_read_write.capacity() < th_num) {
+      var->_read_write.reserve(th_num * 2 < 16384 ? th_num * 2 : 16384);
       while (var->_read_write.size() < var->_read_write.capacity()) {
         var->_read_write.emplace_back(std::make_pair(0,0));
       }
