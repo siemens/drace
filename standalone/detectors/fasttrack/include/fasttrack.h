@@ -13,6 +13,7 @@
 
 #include <detector/Detector.h>
 #include <ipc/spinlock.h>
+#include <parallel_hashmap/phmap_utils.h>  // minimal header providing phmap::HashState()
 #include <chrono>  //for profiling + seeding random generator
 #include <iomanip>
 #include <iostream>
@@ -51,6 +52,17 @@ Define for easier debugging and profiling for optimization
 #include "util/PoolAllocator.h"
 #endif
 
+namespace std {
+template <>
+struct hash<size_t> {
+  std::size_t operator()(std::size_t const& value) const {
+    // return phmap::HashState().combine(0, value);
+    std::cout << "I am here" << std::endl;
+    return 2;
+  }
+};
+}  // namespace std
+
 namespace drace {
 namespace detector {
 
@@ -85,7 +97,7 @@ class Fasttrack : public Detector {
 ---------------------------------------------------------------------
 */
   /// switch logging of read/write operations
-  bool log_flag = false;
+  bool log_flag = true;
   bool final_output = (true && log_flag);
 
 #define DELETE_POLICY false
@@ -110,6 +122,20 @@ class Fasttrack : public Detector {
   // another adress
   phmap_parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_ID>>
       shared_vcs;
+
+  template <class T>
+  struct _hash {
+    template <class K, class... Args>
+    size_t operator()(const K& key, Args&&...) const {
+      // std::cout << "I am here" << std::endl;
+      return key;
+    }
+  };
+
+  template <class K, class V>
+  using phmap_parallel_node_hash_map_no_mtx = phmap::parallel_node_hash_map<
+      K, V, _hash<K>, phmap::container_internal::hash_default_eq<K>,
+      std::allocator<std::pair<const K, V>>, 4, LockT>;
 
   // we have to use a node hash map here, as we access it from multiple
   // threads => the HashMap might grow in the meantime => we would
@@ -172,6 +198,8 @@ class Fasttrack : public Detector {
           it = create_var((size_t)(addr));
         }
         var = &(it->second);
+
+        // std::cout << vars.hash_test(1) << std::endl;
       }
       set_read_write(var, thr, pc);
       read(thr, var, (size_t)addr, size);
@@ -251,6 +279,8 @@ class Fasttrack : public Detector {
     ts_ptr par_thread = parent_it->second;
 
     par_thread->update(*del_thread);
+
+    removeVarStatesOfThread(del_thread_th_num);
 
     threads.erase(del_thread_it);  // no longer do the search
     cleanup(del_thread_th_num);
@@ -380,7 +410,6 @@ class Fasttrack : public Detector {
     std::lock_guard<LockT> lg1(g_lock);
     {
       std::lock_guard<ipc::spinlock> lg2(vars_spl);
-
       vars.clear();
     }
     locks.clear();
@@ -738,6 +767,7 @@ class Fasttrack : public Detector {
         it->second.delete_vc(th_num);
       }
     }
+    VectorClock<>::thread_nums.emplace(th_num);
   }
 
   inline void clearVarStates() {
@@ -767,10 +797,6 @@ class Fasttrack : public Detector {
     if (_flag_removeUselessVarStates) {
       static uint32_t should_call = 1;
       static uint32_t consider_useless = 1;
-#if DEBUG_INFO
-      // deb(consider_useless);
-      // deb(should_call);
-#endif
       if (should_call >= consider_useless) {
         VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
         if (_last_min_th_clock == tmp) {
@@ -807,6 +833,24 @@ class Fasttrack : public Detector {
     }
     if (_flag_removeLowestClockVarStates) {
       removeVarStates();
+    }
+  }
+
+  void removeVarStatesOfThread(VectorClock<>::Thread_Num th_num) {
+    auto it = vars.begin();
+    while (it != vars.end()) {
+      if (VectorClock<>::make_th_num(it->second.get_write_id()) == th_num ||
+          VectorClock<>::make_th_num(it->second.get_read_id()) == th_num) {
+        auto tmp = it;
+        it++;
+        vars.erase(tmp);
+
+        if (log_flag) {
+          log_count.no_VarStates_Of_Thread_removed++;
+        }
+      } else {
+        it++;
+      }
     }
   }
 
@@ -945,14 +989,15 @@ class Fasttrack : public Detector {
     if (var->_read_write.capacity() < th_num) {
       var->_read_write.reserve(th_num * 2 < 16384 ? th_num * 2 : 16384);
       while (var->_read_write.size() < var->_read_write.capacity()) {
-        var->_read_write.emplace_back(std::make_pair(0,0));
+        var->_read_write.emplace_back(std::make_pair(0, 0));
       }
     }
 
     // th_num start from 1, not from 0, because of something I needed to
     // identify races in a read_shared state
-    var->_read_write[th_num - 1] = std::make_pair(reinterpret_cast<size_t>(pc),
-                                    thr->get_stackDepot().get_current_element());
+    var->_read_write[th_num - 1] =
+        std::make_pair(reinterpret_cast<size_t>(pc),
+                       thr->get_stackDepot().get_current_element());
   }
 
   /// returns a stack trace of a clock for handing it over to drace
@@ -989,6 +1034,7 @@ class Fasttrack : public Detector {
     std::size_t no_Random_VarStates_removed = 0;
     std::size_t no_allocatedVarStates = 0;
     std::size_t dropSubMap_calls = 0;
+    std::size_t no_VarStates_Of_Thread_removed = 0;
   } log_count;
 
  private:

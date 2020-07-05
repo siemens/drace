@@ -10,17 +10,23 @@
  *
  * SPDX-License-Identifier: MIT
  */
+
+#include <stack>
 #include "parallel_hashmap/phmap.h"
 /*
-    Implements a VectorClock.
-    Can hold arbitrarily much pairs of a Thread Id and the belonging clock
+---------------------------------------------------------------------
+Implements a VectorClock.
+Can hold an arbitrarily number pairs of Thread Numbers (replacement for
+Thread IDs) and the belonging clock
+---------------------------------------------------------------------
 */
+
 template <class _al = std::allocator<std::pair<const size_t, size_t>>>
 class VectorClock {
  public:
-  // on both 64 bits and 32 bits platform, 32 bits will be used for VC_ID
-  // first 14 bits represent the TID and last 18 bits the Clock
-  typedef uint32_t VC_ID;
+  typedef uint32_t
+      VC_ID;  // first 13 bits represent the TID and last 19 bits the Clock
+              // TODO: need to switch to 19 bits the clock
   typedef uint32_t TID;
   typedef uint32_t Clock;
   typedef uint32_t Thread_Num;
@@ -121,7 +127,7 @@ class VectorClock {
   }
 
   static constexpr TID make_tid_from_th_num(Thread_Num th_num) {
-    auto it = thread_ids.find(static_cast<Thread_Num>(th_num));
+    auto it = thread_ids.find(th_num);
     if (it != thread_ids.end()) {
       return static_cast<TID>(it->second);
     } else {  // we should never reach this one
@@ -129,25 +135,33 @@ class VectorClock {
     }
   }
 
-  static Thread_Num thread_no;
+  //TODO: put them at the top
+  static std::stack<Thread_Num> thread_nums;
   static phmap::flat_hash_map<VectorClock<>::Thread_Num, VectorClock<>::TID>
       thread_ids;
 
   /// creates an id with clock=0 from an tid
   static constexpr VC_ID make_id(TID tid) {
+    Thread_Num thread_no = thread_nums.top();
+    thread_nums.pop();
+    //TODO: check if stack is empty
     thread_ids.emplace(thread_no, tid);
     VC_ID id = thread_no << 18;  // epoch is 0
-    thread_no++;
-    if (thread_no >= 16384) {
-      // 16383 is the maximum number of threads. Afterwards we'll have to
-      // overwrite them if thread_no goes over 16384, no TIDs will be found
-      // anymore in thread_ids => queue functionality;
-      thread_no = 1;
-    }
     return id;
   }
+
+ private:
+  static bool _thread_no_initiliazation;
+  static bool ThreadNoInitialization() {
+    // 16383 is the maximum number of threads.
+    for (int i = 16384; i >= 1; --i) {
+      thread_nums.emplace(i);
+    }
+  }
 };
-VectorClock<>::Thread_Num VectorClock<>::thread_no = 1;
+std::stack<VectorClock<>::Thread_Num> VectorClock<>::thread_nums;
+bool VectorClock<>::_thread_no_initiliazation =
+    VectorClock<>::ThreadNoInitialization();
 phmap::flat_hash_map<VectorClock<>::Thread_Num, VectorClock<>::TID>
     VectorClock<>::thread_ids;
 #endif

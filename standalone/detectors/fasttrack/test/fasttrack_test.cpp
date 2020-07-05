@@ -104,7 +104,7 @@ TEST(FasttrackTest, Indicate_Write_Write_Race) {
   EXPECT_EQ(ft->log_count.rw_sh_race, 0);
   ft->finalize();
 }
-//
+
 TEST(FasttrackTest, Indicate_Exclusive_Read_Write_Race) {
   std::size_t addr = 0x65BEull;
   using namespace drace::detector;
