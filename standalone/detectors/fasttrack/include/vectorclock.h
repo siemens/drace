@@ -157,6 +157,7 @@ class VectorClock {
     for (int i = 16384; i >= 1; --i) {
       thread_nums.emplace(i);
     }
+    return true;
   }
 };
 std::stack<VectorClock<>::Thread_Num> VectorClock<>::thread_nums;

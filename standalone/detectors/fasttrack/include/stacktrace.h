@@ -29,11 +29,11 @@ public:
   typedef boost::adjacency_list<boost::vecS, boost::vecS, boost::bidirectionalS,
                                 VertexProperty>
       StackTree;
-
-  /// holds to complete stack tree
-  /// is needed to create the stack trace in case of a race
-  /// leafs of the tree which do not have pointer pointing to them may be
-  /// deleted
+  /**
+  // \brief holds to complete stack tree
+  // is needed to create the stack trace in case of a race
+  // leafs of the tree which do not have pointer pointing to them may be
+  // deleted   */
   StackTree _local_stack;
 
   /// reference to the current stack element

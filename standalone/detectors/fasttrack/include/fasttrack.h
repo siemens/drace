@@ -29,7 +29,7 @@
 #define MAKE_OUTPUT false
 #define POOL_ALLOC false
 
-#define PROF_INFO false
+#define PROF_INFO true
 #define DEBUG_INFO false
 
 /*
@@ -168,6 +168,9 @@ class Fasttrack : public Detector {
 
   // helper funtion for a unit_test -> might have its usage later
   void clearVarState(std::size_t addr) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     auto it = vars.find((size_t)(addr));
     if (it != vars.end()) {
       vars.erase(it);
@@ -189,7 +192,11 @@ class Fasttrack : public Detector {
           clearVarStates();
         }
 #endif
+#if PROF_INFO
+        PROF_START_BLOCK("find")
+#endif
         auto it = vars.find((size_t)addr);
+
         if (it == vars.end()) {
 #if MAKE_OUTPUT
           std::cout << "variable is read before written"
@@ -198,7 +205,9 @@ class Fasttrack : public Detector {
           it = create_var((size_t)(addr));
         }
         var = &(it->second);
-
+#if PROF_INFO
+        PROF_END_BLOCK
+#endif
         // std::cout << vars.hash_test(1) << std::endl;
       }
       set_read_write(var, thr, pc);
@@ -221,11 +230,18 @@ class Fasttrack : public Detector {
           clearVarStates();
         }
 #endif
+#if PROF_INFO
+        PROF_START_BLOCK("find")
+#endif
         auto it = vars.find((size_t)addr);
+
         if (it == vars.end()) {
           it = create_var((size_t)(addr));
         }
         var = &(it->second);
+#if PROF_INFO
+        PROF_END_BLOCK
+#endif
       }
       set_read_write(var, thr, pc);
       write(thr, var, (size_t)addr, size);
@@ -259,6 +275,9 @@ class Fasttrack : public Detector {
   }
 
   void join(tid_t parent, tid_t child) final {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     std::lock_guard<LockT> exLockT(g_lock);
     auto del_thread_it = threads.find(child);
     auto parent_it = threads.find(parent);
@@ -396,6 +415,9 @@ class Fasttrack : public Detector {
   }
 
   void finish(tls_t tls, tid_t thread_id) final {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     std::lock_guard<LockT> exLockT(g_lock);
     /// just delete thread from list, no backward sync needed
     VectorClock<>::Thread_Num th_num;
@@ -407,6 +429,9 @@ class Fasttrack : public Detector {
   }
 
   void finalize() final {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     std::lock_guard<LockT> lg1(g_lock);
     {
       std::lock_guard<ipc::spinlock> lg2(vars_spl);
@@ -515,7 +540,7 @@ class Fasttrack : public Detector {
    */
   void read(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
 #if PROF_INFO
-    PROF_FUNCTION();
+    PROF_FUNCTION()
 #endif
     if (t->return_own_id() ==
         v->get_read_id()) {  // read same epoch, same thread;
@@ -584,6 +609,10 @@ class Fasttrack : public Detector {
   void update_VarState(bool is_write, VectorClock<>::VC_ID id, VarState* v,
                        std::size_t addr,
                        xvector<VectorClock<>::VC_ID>* shared_vc) {
+#if PROF_INFO
+    PROF_FUNCTION()
+#endif
+
     if (is_write) {  // we have to do shared_vcs.erase() here
                      // shared_vcs_it is for sure a phmap::iterator
       if (shared_vc != nullptr) {
@@ -626,7 +655,7 @@ class Fasttrack : public Detector {
    */
   void write(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
 #if PROF_INFO
-    PROF_FUNCTION();
+    PROF_FUNCTION()
 #endif
     if (t->return_own_id() == v->get_write_id()) {  // write same epoch
       if (log_flag) {
@@ -690,6 +719,9 @@ class Fasttrack : public Detector {
    * written for the first time) \note Invariant: vars table is locked
    */
   inline auto create_var(size_t addr) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     if (log_flag) {
       log_count.no_allocatedVarStates++;
     }
@@ -754,6 +786,9 @@ class Fasttrack : public Detector {
    * finish()) \note Not Threadsafe
    */
   void cleanup(VectorClock<>::Thread_Num th_num) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     {
       for (auto it = locks.begin(); it != locks.end(); ++it) {
         it->second.delete_vc(th_num);
@@ -771,6 +806,9 @@ class Fasttrack : public Detector {
   }
 
   inline void clearVarStates() {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
 #if DEBUG_INFO
     static int clearVarStates_calls = 0;
     clearVarStates_calls++;
@@ -837,6 +875,9 @@ class Fasttrack : public Detector {
   }
 
   void removeVarStatesOfThread(VectorClock<>::Thread_Num th_num) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     auto it = vars.begin();
     while (it != vars.end()) {
       if (VectorClock<>::make_th_num(it->second.get_write_id()) == th_num ||
@@ -1003,6 +1044,9 @@ class Fasttrack : public Detector {
   /// returns a stack trace of a clock for handing it over to drace
   std::list<size_t> return_stack_trace(const VarState& var,
                                        ThreadState* t) const {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     std::lock_guard<ipc::spinlock> lg1(StackTrace::lock);
     auto data = var._read_write[t->get_th_num() - 1];
     return t->get_stackDepot().make_trace(data);
@@ -1098,12 +1142,14 @@ class Fasttrack : public Detector {
               << std::endl;
     std::cout << "dropSubMap_calls calls: " << log_count.dropSubMap_calls
               << std::endl;
-    std::cout << "no4_Useful_VarStates_removed: "
+    std::cout << "no_Useful_VarStates_removed: "
               << log_count.no_Useful_VarStates_removed << std::endl;
     std::cout << "no_Useless_VarStates_removed: "
               << log_count.no_Useless_VarStates_removed << std::endl;
     std::cout << "no_Random_VarStates_removed: "
               << log_count.no_Random_VarStates_removed << std::endl;
+    std::cout << "no_VarStates_Of_Thread_removed: "
+              << log_count.no_VarStates_Of_Thread_removed << std::endl;
     std::cout << "number of allocated VarStates: "
               << log_count.no_allocatedVarStates << std::endl;
     std::cout << "wr_race: " << log_count.wr_race << std::endl;
