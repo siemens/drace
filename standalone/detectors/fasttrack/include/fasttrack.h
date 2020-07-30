@@ -35,7 +35,7 @@ Define for easier debugging and profiling for optimization
 ---------------------------------------------------------------------
 */
 #include "prof.h"
-#define PROF_INFO true
+#define PROF_INFO false
 #define DEBUG_INFO false
 
 ///\todo implement a pool allocator
@@ -153,7 +153,7 @@ class Fasttrack : public Detector {
   bool init(int argc, const char** argv, Callback rc_clb) final {
     parse_args(argc, argv);
     clb = rc_clb;  // init callback
-    vars.reserve(vars_size);
+    vars.reserve(65535);
     return true;
   }
 
@@ -187,8 +187,6 @@ class Fasttrack : public Detector {
         PROF_START_BLOCK("find")
 #endif
         auto it = vars.find((size_t)addr);
-        deb_hex(addr);
-        newline();
         if (it == vars.end()) {
 #if MAKE_OUTPUT
           std::cout << "variable is read before written"
@@ -206,6 +204,7 @@ class Fasttrack : public Detector {
       read(thr, var, (size_t)addr, size);
     }
   }
+  inline std::size_t hashAddress(std::size_t addr) { return addr & 0xFFFFull }
 
   void write(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
@@ -226,15 +225,12 @@ class Fasttrack : public Detector {
         PROF_START_BLOCK("find")
 #endif
         auto it = vars.find((size_t)addr);
-        deb_hex(addr);
-        newline();
-        SLEEP_THREAD();
         if (it == vars.end()) {
           it = create_var((size_t)(addr));
         }
         var = &(it->second);
 #if PROF_INFO
-        PROF_END_BLOCK
+          PROF_END_BLOCK
 #endif
       }
       set_read_write(var, thr, pc);
@@ -442,6 +438,8 @@ class Fasttrack : public Detector {
 #if PROF_INFO
     ProfTimer::Print();
 #endif
+    fflush(stdout);
+    std::cout << std::flush;
   }
 
   /**
@@ -1150,6 +1148,7 @@ class Fasttrack : public Detector {
     std::cout << "rw_sh_race: " << log_count.rw_sh_race << std::endl;
     std::cout << "ww_race: " << log_count.ww_race << std::endl;
     std::cout << "rw_ex_race: " << log_count.rw_ex_race << std::endl;
+    std::cout << "s_spinlock_counter: " << ipc::s_spinlock_counter << std::endl;
     std::cout << std::endl;
   }
 };
