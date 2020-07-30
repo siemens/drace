@@ -33,6 +33,7 @@ namespace ipc {
  * \note this spinlock is cache-coherence friendly and
  *       has optimizations for hyper-threading CPUs
  */
+ static int s_spinlock_counter = 0;
 class spinlock {
   std::atomic<bool> _locked{false};
 
@@ -45,6 +46,7 @@ class spinlock {
         _mm_pause();
 #endif
       } else {
+        s_spinlock_counter++;
         // avoid waisting CPU time in rare long-wait scenarios
         std::this_thread::yield();
       }

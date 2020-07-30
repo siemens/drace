@@ -23,6 +23,9 @@
 #include "varstate.h"
 #include "xvector.h"
 
+#define PROF_INFO false
+#include "prof.h"
+
 #define MAKE_OUTPUT false
 #define REGARD_ALLOCS true
 #define POOL_ALLOC false
@@ -68,7 +71,7 @@ class Fasttrack : public Detector {
   Callback clb;
 
   /// switch logging of read/write operations
-  bool log_flag = false;
+  bool log_flag = true;
 
   /// internal statistics
   struct log_counters {
@@ -163,6 +166,9 @@ class Fasttrack : public Detector {
    * \note works only on calling-thread and var object, not on any list
    */
   void read(ThreadState* t, VarState* v, size_t addr) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     if (t->return_own_id() ==
         v->get_read_id()) {  // read same epoch, same thread;
       if (log_flag) {
@@ -215,6 +221,9 @@ class Fasttrack : public Detector {
    * \note works only on calling-thread and var object, not on any list
    */
   void write(ThreadState* t, VarState* v, size_t addr) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     if (t->return_own_id() == v->get_write_id()) {  // write same epoch
       if (log_flag) {
         log_count.write_same_epoch++;
@@ -266,6 +275,9 @@ class Fasttrack : public Detector {
    * written for the first time) \note Invariant: vars table is locked
    */
   inline auto create_var(size_t addr, size_t size) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     return vars.emplace(addr, static_cast<uint16_t>(size)).first;
   }
 
@@ -355,6 +367,8 @@ class Fasttrack : public Detector {
               << "Write exclusive: " << w_ex << std::endl;
     std::cout << std::fixed << std::setprecision(2) << "Write shared: " << w_sh
               << std::endl;
+    std::cout << "s_spinlock_counter: " << ipc::s_spinlock_counter << std::endl;
+              
   }
 
   /**
@@ -366,6 +380,9 @@ class Fasttrack : public Detector {
    * \note Not Threadsafe
    */
   void cleanup(uint32_t tid) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     {
       for (auto it = locks.begin(); it != locks.end(); ++it) {
         it->second.delete_vc(tid);
@@ -413,6 +430,10 @@ class Fasttrack : public Detector {
     allocs.clear();
     threads.clear();
 
+#if PROF_INFO
+    ProfTimer::Print();
+#endif
+
     if (log_flag) {
       process_log_output();
     }
@@ -420,11 +441,21 @@ class Fasttrack : public Detector {
 
   void read(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+#if PROF_INFO
+    PROF_START_BLOCK("set_read_write")
+#endif
     thr->get_stackDepot().set_read_write((size_t)(addr),
                                          reinterpret_cast<size_t>(pc));
+
+#if PROF_INFO
+    PROF_END_BLOCK
+#endif
     VarState* var;
     {
       std::lock_guard<ipc::spinlock> exLockT(vars_spl);
+#if PROF_INFO
+      PROF_START_BLOCK("find")
+#endif
       auto it = vars.find((size_t)(addr));
       if (it == vars.end()) {  // create new variable if new
 #if MAKE_OUTPUT
@@ -433,6 +464,9 @@ class Fasttrack : public Detector {
         it = create_var((size_t)(addr), size);
       }
       var = &(it->second);
+#if PROF_INFO
+      PROF_END_BLOCK
+#endif
     }
     std::lock_guard<ipc::spinlock> lg(var->lock);
     read(thr, var, (size_t)addr);
@@ -440,16 +474,29 @@ class Fasttrack : public Detector {
 
   void write(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().set_read_write((size_t)addr,
+#if PROF_INFO
+    PROF_START_BLOCK("set_read_write")
+#endif
+    thr->get_stackDepot().set_read_write((size_t)(addr),
                                          reinterpret_cast<size_t>(pc));
+
+#if PROF_INFO
+    PROF_END_BLOCK
+#endif
     VarState* var;
     {
       std::lock_guard<ipc::spinlock> exLockT(vars_spl);
+#if PROF_INFO
+      PROF_START_BLOCK("find")
+#endif
       auto it = vars.find((size_t)addr);
       if (it == vars.end()) {
         it = create_var((size_t)(addr), size);
       }
       var = &(it->second);
+#if PROF_INFO
+      PROF_END_BLOCK
+#endif
     }
     std::lock_guard<ipc::spinlock> lg(var->lock);
     write(thr, var, (size_t)addr);
@@ -482,6 +529,9 @@ class Fasttrack : public Detector {
   }
 
   void join(tid_t parent, tid_t child) final {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     std::lock_guard<LockT> exLockT(g_lock);
     auto del_thread_it = threads.find(child);
     auto parent_it = threads.find(parent);

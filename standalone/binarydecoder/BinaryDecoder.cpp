@@ -32,8 +32,6 @@ int main(int argc, char** argv) {
 
   std::cout << "Detector: " << detec.c_str() << std::endl;
   try {
-    DetectorOutput output(detec.c_str());
-
     std::ifstream in_file(file, std::ios::binary | std::ios::ate);
     if (!in_file.good()) {
       std::cerr << "File not found: " << file << std::endl;
@@ -47,12 +45,14 @@ int main(int argc, char** argv) {
 
     // ipc::event::BufferEntry buf;
     // int i = 0;
-
+    __debugbreak();
+    DetectorOutput output(detec.c_str());
     if (in_file.read((char*)(buffer.data()), size).good()) {
       for (auto it = buffer.begin(); it != buffer.end(); ++it) {
         ipc::event::BufferEntry tmp = *it;
         output.makeOutput(&tmp);
       }
+      __debugbreak();
     }
   } catch (const std::exception& e) {
     std::cerr << "Could not load detector: " << e.what() << std::endl;
