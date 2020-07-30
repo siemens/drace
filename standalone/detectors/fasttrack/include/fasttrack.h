@@ -29,23 +29,14 @@
 #define MAKE_OUTPUT false
 #define POOL_ALLOC false
 
-#define PROF_INFO true
-#define DEBUG_INFO false
-
 /*
 ---------------------------------------------------------------------
 Define for easier debugging and profiling for optimization
 ---------------------------------------------------------------------
 */
-
-#if PROF_INFO
 #include "prof.h"
-#endif
-
-/// include to generate debug code
-#if DEBUG_INFO
-#include "debug.h"
-#endif
+#define PROF_INFO true
+#define DEBUG_INFO false
 
 ///\todo implement a pool allocator
 #if POOL_ALLOC
@@ -196,7 +187,8 @@ class Fasttrack : public Detector {
         PROF_START_BLOCK("find")
 #endif
         auto it = vars.find((size_t)addr);
-
+        deb_hex(addr);
+        newline();
         if (it == vars.end()) {
 #if MAKE_OUTPUT
           std::cout << "variable is read before written"
@@ -234,7 +226,9 @@ class Fasttrack : public Detector {
         PROF_START_BLOCK("find")
 #endif
         auto it = vars.find((size_t)addr);
-
+        deb_hex(addr);
+        newline();
+        SLEEP_THREAD();
         if (it == vars.end()) {
           it = create_var((size_t)(addr));
         }

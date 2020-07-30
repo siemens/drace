@@ -10,7 +10,6 @@
  */
 
 #include "stacktrace.h"
-#include "debug.h"
 
 std::list<size_t> StackTrace::make_trace(
     const std::pair<size_t, StackTree::vertex_descriptor>& data) const {

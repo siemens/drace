@@ -5,9 +5,6 @@
 #include <deque>
 #include "parallel_hashmap/phmap.h"
 #include <unordered_map>
-#include "debug.h"
-
-#define deb(x) std::cout << #x << " = " << std::setw(3) << x << " "
 
 struct VC_ID {
   uint32_t TID : 10, Clock : 22;
