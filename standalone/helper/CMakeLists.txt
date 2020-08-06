@@ -1,5 +1,5 @@
 
-set(HELPER_SOURCES "src/main.cpp")
+set(HELPER_SOURCES "src/helper.cpp")
 
 add_executable("helper" ${HELPER_SOURCES})
 
@@ -13,4 +13,4 @@ endif()
 target_include_directories("helper" PUBLIC "include")
 
 
-target_link_libraries("helper" PUBLIC Threads::Threads)
+target_link_libraries("helper" PUBLIC Threads::Threads "parallel-hashmap")

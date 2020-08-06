@@ -14,7 +14,8 @@
 #include <detector/Detector.h>
 #include <ipc/spinlock.h>
 #include <parallel_hashmap/phmap_utils.h>  // minimal header providing phmap::HashState()
-#include <chrono>  //for profiling + seeding random generator
+#include <chrono>   //for profiling + seeding random generator
+#include <fstream>  //for writing values of hash function to file
 #include <iomanip>
 #include <iostream>
 #include <mutex>   // for lock_guard
@@ -36,23 +37,11 @@ Define for easier debugging and profiling for optimization
 */
 #include "prof.h"
 #define PROF_INFO false
-#define DEBUG_INFO false
 
 ///\todo implement a pool allocator
 #if POOL_ALLOC
 #include "util/PoolAllocator.h"
 #endif
-
-namespace std {
-template <>
-struct hash<size_t> {
-  std::size_t operator()(std::size_t const& value) const {
-    // return phmap::HashState().combine(0, value);
-    std::cout << "I am here" << std::endl;
-    return 2;
-  }
-};
-}  // namespace std
 
 namespace drace {
 namespace detector {
@@ -79,9 +68,6 @@ class Fasttrack : public Detector {
   /// central lock, used for accesses to global tables except vars (order: 1)
   LockT g_lock;
 
-  /// spinlock to protect accesses to vars table (order: 2)
-  mutable ipc::spinlock vars_spl;
-
   /*
 ---------------------------------------------------------------------
  Variables to be defined via an external framework
@@ -98,12 +84,6 @@ class Fasttrack : public Detector {
   bool _flag_removeLowestClockVarStates = (false && DELETE_POLICY);
   std::size_t vars_size = 50000;  // TODO: optimal threshold
 
-  template <class K, class V>
-  using phmap_parallel_node_hash_map = phmap::parallel_node_hash_map<
-      K, V, phmap::container_internal::hash_default_hash<K>,
-      phmap::container_internal::hash_default_eq<K>,
-      std::allocator<std::pair<const K, V>>, 4, ipc::spinlock>;
-
   /// these maps hold the various state objects together with the identifiers
   phmap::parallel_flat_hash_map<size_t, size_t> allocs;
 
@@ -111,27 +91,24 @@ class Fasttrack : public Detector {
   // while an address has a pointer, another one may add to the HashMap,
   // as the locks are on address => we might invalidate our pointers from
   // another adress
+  template <class K, class V>
+  using phmap_parallel_node_hash_map = phmap::parallel_node_hash_map<
+      K, V, phmap::container_internal::hash_default_hash<K>,
+      phmap::container_internal::hash_default_eq<K>,
+      std::allocator<std::pair<const K, V>>, 4, ipc::spinlock>;
   phmap_parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_ID>>
       shared_vcs;
-
-  template <class T>
-  struct _hash {
-    template <class K, class... Args>
-    size_t operator()(const K& key, Args&&...) const {
-      // std::cout << "I am here" << std::endl;
-      return key;
-    }
-  };
-
-  template <class K, class V>
-  using phmap_parallel_node_hash_map_no_mtx = phmap::parallel_node_hash_map<
-      K, V, _hash<K>, phmap::container_internal::hash_default_eq<K>,
-      std::allocator<std::pair<const K, V>>, 4, LockT>;
 
   // we have to use a node hash map here, as we access it from multiple
   // threads => the HashMap might grow in the meantime => we would
   // invalidate our pointers unless we use a node map
-  phmap::parallel_node_hash_map<size_t, VarState> vars;
+  template <class K, class V>
+  using phmap_parallel_node_hash_map_no_lock = phmap::parallel_node_hash_map<
+      K, V, phmap::container_internal::hash_default_hash<K>,
+      phmap::container_internal::hash_default_eq<K>,
+      std::allocator<std::pair<const K, V>>, 5,
+      ipc::spinlock>;  // phmap::NullMutex
+  phmap_parallel_node_hash_map_no_lock<size_t, VarState> vars;
 
   // number of locks, threads is expected to be < 1000, hence use one map
   // (without submaps)
@@ -172,12 +149,10 @@ class Fasttrack : public Detector {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
 
     {  // lock on the address
-      std::lock_guard<ipc::spinlock> lg(
-          spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
+      std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((std::size_t)addr)]);
 
       VarState* var;
       {  // finds the VarState instance of a specific addr or creates it
-        std::lock_guard<ipc::spinlock> exLockT(vars_spl);
 #if DELETE_POLICY
         if (vars.size() >= vars_size) {
           clearVarStates();
@@ -198,24 +173,20 @@ class Fasttrack : public Detector {
 #if PROF_INFO
         PROF_END_BLOCK
 #endif
-        // std::cout << vars.hash_test(1) << std::endl;
       }
       set_read_write(var, thr, pc);
       read(thr, var, (size_t)addr, size);
     }
   }
-  inline std::size_t hashAddress(std::size_t addr) { return addr & 0xFFFFull }
 
   void write(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
 
     {  // lock on the address
-      std::lock_guard<ipc::spinlock> lg(
-          spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
+      std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((std::size_t)addr)]);
 
       VarState* var;
       {  // finds the VarState instance of a specific addr or creates it
-        std::lock_guard<ipc::spinlock> exLockT(vars_spl);
 #if DELETE_POLICY
         if (vars.size() >= vars_size) {
           clearVarStates();
@@ -230,7 +201,7 @@ class Fasttrack : public Detector {
         }
         var = &(it->second);
 #if PROF_INFO
-          PROF_END_BLOCK
+        PROF_END_BLOCK
 #endif
       }
       set_read_write(var, thr, pc);
@@ -387,7 +358,6 @@ class Fasttrack : public Detector {
       allocation, but we don't create the Var state objects for the
       adresses. We create them 1 by 1 on each access. But when we deallocate
       we clear all of them.*/
-      std::lock_guard<ipc::spinlock> lg(vars_spl);
       if (vars.find(address) != vars.end()) {
         vars.erase(address);
         address++;
@@ -423,10 +393,7 @@ class Fasttrack : public Detector {
     PROF_FUNCTION();
 #endif
     std::lock_guard<LockT> lg1(g_lock);
-    {
-      std::lock_guard<ipc::spinlock> lg2(vars_spl);
-      vars.clear();
-    }
+    vars.clear();
     locks.clear();
     happens_states.clear();
     allocs.clear();
@@ -454,7 +421,10 @@ class Fasttrack : public Detector {
   const char* version() final { return "0.0.1"; }
 
  private:
-  constexpr std::size_t hashOf(std::size_t addr) const { return (addr >> 4); }
+  const unsigned long long _addr_mask = 0x3FFull;
+  constexpr std::size_t hashOf(std::size_t addr) const {
+    return (addr >> 4) & _addr_mask;
+  }
 
   /**
    * \brief report a data-race back to DRace
@@ -801,29 +771,6 @@ class Fasttrack : public Detector {
 #if PROF_INFO
     PROF_FUNCTION();
 #endif
-#if DEBUG_INFO
-    static int clearVarStates_calls = 0;
-    clearVarStates_calls++;
-    if (clearVarStates_calls % 50 == 0) {
-      std::cout << "====----------- clearVarStates call -----------====";
-      newline();
-      deb_short(vars.size());
-      deb_short(vars.capacity());
-      deb_short(_last_min_th_clock);
-      deb_short(threads.size());
-      newline();
-      deb_long(log_count.removeUselessVarStates_calls);
-      deb_long(log_count.removeRandomVarStates_calls);
-      deb_long(log_count.removeVarStates_calls);
-      newline();
-      deb_long(log_count.no_Useless_VarStates_removed);
-      deb_long(log_count.no_Useful_VarStates_removed);
-      deb_long(log_count.no_Random_VarStates_removed);
-      newline();
-      std::this_thread::sleep_for(std::chrono::seconds(5));
-    }
-#endif
-
     if (_flag_removeUselessVarStates) {
       static uint32_t should_call = 1;
       static uint32_t consider_useless = 1;
@@ -849,14 +796,6 @@ class Fasttrack : public Detector {
       if (log_flag) {
         log_count.dropSubMap_calls++;
       }
-#if DEBUG_INFO
-      vars.list_characteristics();
-      static int no_call = 1;
-      no_call++;
-      if (no_call % 10 == 0) {
-        std::this_thread::sleep_for(std::chrono::seconds(5));
-      }
-#endif
     }
     if (_flag_removeRandomVarStates) {
       removeRandomVarStates();

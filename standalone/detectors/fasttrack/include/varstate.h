@@ -25,8 +25,8 @@
  */
 class VarState {
  public:
-  static constexpr uint32_t VAR_NOT_INIT = 0;
-  static constexpr uint32_t R_ID_SHARED = -1;
+  static constexpr VectorClock<>::VC_ID VAR_NOT_INIT = 0;
+  static constexpr VectorClock<>::VC_ID R_ID_SHARED = -1;
 
   // TODO: make these private and make setters & getters for it
   /// local clock of last read

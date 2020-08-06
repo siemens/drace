@@ -110,10 +110,6 @@ void ProfTimer::Print() {
     double seconds = x.second - mins * 60;
     printf("%25s = %15.3f ms: %4d min, %4.2f s, %6.3f %% \n", x.first.c_str(),
            millis, mins, seconds, percentage);
-
-    //    std::cout
-    //<< std::setw(40) << x.first << " = " << std::setw(5) << x.second
-    //<< std::setw(8) << x.second / totalTime * 100 << "%" << std::endl;
   }
 }
 #endif
