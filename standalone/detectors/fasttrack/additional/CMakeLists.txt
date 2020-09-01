@@ -2,6 +2,9 @@ set(PROF_SOURCES "src/prof.cpp")
 
 add_executable("profiling" ${PROF_SOURCES})
 
+if(NOT TARGET Threads::Threads)
+    find_package(Threads REQUIRED)
+endif()
 
 target_include_directories("profiling"
                 PUBLIC "include"
@@ -9,7 +12,7 @@ target_include_directories("profiling"
 
 #find_package(easy_profiler REQUIRED)
                    
-target_link_libraries("profiling"
+target_link_libraries("profiling" Threads::Threads
 "drace-common" "parallel-hashmap" "drace.detector.fasttrack.generic")
 
 set_target_properties(
@@ -20,3 +23,4 @@ set_target_properties(
 
 set (CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
 set (CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
+

@@ -124,6 +124,8 @@ class Fasttrack : public Detector {
   // the last_min_th_clock modified from the last check
   VectorClock<>::Clock _last_min_th_clock = -1;
 
+  std::ofstream _hash_file;
+
  public:
   explicit Fasttrack() = default;
 
@@ -131,6 +133,7 @@ class Fasttrack : public Detector {
     parse_args(argc, argv);
     clb = rc_clb;  // init callback
     vars.reserve(65535);
+    _hash_file.open("key_hash_values.txt");
     return true;
   }
 
@@ -161,7 +164,11 @@ class Fasttrack : public Detector {
 #if PROF_INFO
         PROF_START_BLOCK("find")
 #endif
-        auto it = vars.find((size_t)addr);
+        //{
+        //  std::lock_guard<LockT> exLockT(g_lock);
+        //  vars.hash_test((size_t)addr, _hash_file);
+        //}
+        auto it = vars.find((size_t)addr, (size_t)addr);
         if (it == vars.end()) {
 #if MAKE_OUTPUT
           std::cout << "variable is read before written"
@@ -195,7 +202,7 @@ class Fasttrack : public Detector {
 #if PROF_INFO
         PROF_START_BLOCK("find")
 #endif
-        auto it = vars.find((size_t)addr);
+        auto it = vars.find((size_t)addr, (size_t)addr);
         if (it == vars.end()) {
           it = create_var((size_t)(addr));
         }
@@ -407,6 +414,7 @@ class Fasttrack : public Detector {
 #endif
     fflush(stdout);
     std::cout << std::flush;
+    _hash_file.close();
   }
 
   /**
@@ -421,7 +429,7 @@ class Fasttrack : public Detector {
   const char* version() final { return "0.0.1"; }
 
  private:
-  const unsigned long long _addr_mask = 0x3FFull;
+  static constexpr unsigned long long _addr_mask = 0x3FFull;
   constexpr std::size_t hashOf(std::size_t addr) const {
     return (addr >> 4) & _addr_mask;
   }

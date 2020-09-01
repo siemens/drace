@@ -64,7 +64,9 @@ int main() {
   int run_count = 0;
   while (run_count < 100) {
     for (int i = 0; i != addr.size(); i++) {
-      auto it = vars.find(addr[i]);
+      auto it = vars.find(addr[i]); //109 ms
+      //auto it = vars.find(addr[i], hashes[i]); //88 ms
+
       if (it == vars.end()) {
         it = vars.emplace(addr[i], VarState()).first;
       }
