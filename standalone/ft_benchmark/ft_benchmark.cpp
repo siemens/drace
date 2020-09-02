@@ -1,9 +1,10 @@
 /*
  * DRace, a dynamic data race detector
  *
- * Copyright 2018 Siemens AG
+ * Copyright 2020 Siemens AG
  *
  * Authors:
+ *   Mihai Robescu <mihai-gabriel.robescu@siemens.com>
  *   Felix Moessbauer <felix.moessbauer@siemens.com>
  *
  * SPDX-License-Identifier: MIT
@@ -23,7 +24,7 @@ std::mutex mx;
 static std::set<int> random_reads;
 static std::set<int> random_writes;
 static std::random_device rd{};
-std::mt19937 gen{ 0 };
+std::mt19937 gen{0};
 
 void generate_block(int i,
                     std::vector<std::pair<uintptr_t*, uintptr_t*>>* blocks) {
@@ -48,11 +49,10 @@ void read_from_block(std::vector<std::pair<uintptr_t*, uintptr_t*>>* blocks) {
       auto tmp = *iter;
       iter++;
     }
-    // std::this_thread::sleep_for(std::chrono::milliseconds(500));
   } catch (const std::exception& e) {
     std::cout << e.what() << std::endl;
   } catch (...) {
-    std::cout << "Something!" << std::endl;
+    std::cout << "Failure!" << std::endl;
   }
 }
 
@@ -69,19 +69,18 @@ void write_to_block(std::vector<std::pair<uintptr_t*, uintptr_t*>>* blocks) {
       *iter = -1;
       iter++;
     }
-    // std::this_thread::sleep_for(std::chrono::milliseconds(500));
   } catch (const std::exception& e) {
     std::cout << e.what() << std::endl;
   } catch (...) {
-    std::cout << "Something!" << std::endl;
+    std::cout << "Failure!" << std::endl;
   }
 }
 
-int CountPossibleDataRaces();
+int count_possible_data_races();
 
 /**
- * Test tool to check for memory corruption and layout.
- * To also check the race reporting, we try to enforce data-races
+ * \brief benchmarking program used to test the performance of the FastTrack2
+ * algorithm implementation
  */
 int main(int argc, char** argv) {
   std::vector<std::pair<uintptr_t*, uintptr_t*>> blocks;
@@ -116,20 +115,19 @@ int main(int argc, char** argv) {
     t.join();
   }
 
-  int no_of_data_races = CountPossibleDataRaces();
+  int no_of_data_races = count_possible_data_races();
 
   std::cout << "No. of possible data races: " << std::setw(3)
             << no_of_data_races << std::endl;
-  //std::cin.get();
 }
 
-int CountPossibleDataRaces() {
+int count_possible_data_races() {
   int result = 0;
   auto it_r = random_reads.begin();
   auto it_w = random_writes.begin();
   while (it_r != random_reads.end() && it_w != random_writes.end()) {
     if (*it_r == *it_w) {
-      result++;  //= std::distance(blocks[*it_r].first, blocks[*it_w].second);
+      result++;
       it_r++;
       it_w++;
       continue;

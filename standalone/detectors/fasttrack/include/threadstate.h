@@ -1,6 +1,5 @@
 #ifndef THREADSTATE_H
-#define THREADSTATE_H 1
-#pragma once
+#define THREADSTATE_H
 /*
  * DRace, a dynamic data race detector
  *
@@ -16,6 +15,10 @@
 #include <atomic>
 #include <memory>
 
+#include "parallel_hashmap/phmap.h"
+
+#include "PrefixTreeDepot.h"
+#include "PrefixTree_StackDepot.h"
 #include "stacktrace.h"
 #include "vectorclock.h"
 #include "xvector.h"
@@ -26,8 +29,7 @@
  */
 template <class K, class V>
 using parallel_flat_hash_map = phmap::parallel_node_hash_map<
-    K, V, phmap::container_internal::hash_default_hash<K>,
-    phmap::container_internal::hash_default_eq<K>,
+    K, V, phmap::priv::hash_default_hash<K>, phmap::priv::hash_default_eq<K>,
     std::allocator<std::pair<const K, V>>, 5, ipc::spinlock>;
 
 /**
@@ -114,8 +116,9 @@ class ThreadState : public VectorClock<> {
 
   /**
    * \brief returns a stack trace of a memory location for handing it over to
-   * drace \note theadsafe
+   * drace \note threadsafe
    */
   std::deque<size_t> return_stack_trace(std::size_t address) const;
 };
+
 #endif  // !THREADSTATE_H

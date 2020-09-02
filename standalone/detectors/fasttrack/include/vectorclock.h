@@ -1,6 +1,5 @@
 #ifndef VECTORCLOCK_HEADER_H
-#define VECTORCLOCK_HEADER_H 1
-#pragma once
+#define VECTORCLOCK_HEADER_H
 
 /*
  * DRace, a dynamic data race detector
@@ -12,6 +11,7 @@
  *
  * SPDX-License-Identifier: MIT
  */
+
 #include "parallel_hashmap/phmap.h"
 
 /**
@@ -169,7 +169,9 @@ class VectorClock {
     return id;
   }
 };
+
 VectorClock<>::ThreadNum VectorClock<>::thread_no = 1;
 phmap::flat_hash_map<VectorClock<>::ThreadNum, VectorClock<>::TID>
     VectorClock<>::thread_ids;
-#endif
+
+#endif  //! VECTORCLOCK_HEADER_H

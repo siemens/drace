@@ -1,6 +1,5 @@
 #ifndef STACKTRACE_H
-#define STACKTRACE_H 1
-#pragma once
+#define STACKTRACE_H
 /*
  * DRace, a dynamic data race detector
  *
@@ -48,14 +47,6 @@ class StackTrace {
   uint16_t pop_count = 0;
 
   mutable ipc::spinlock lock;
-
-  /**
-   * \note locking was moved to ThreadState
-   * \note Locking is necessary if and only if elements are removed from the
-   * tree. As long as no elements are removed locking is not necessary: mutable
-   * ipc::spinlock lock;
-   */
-
   /**
    * \brief cleanup unreferenced nodes in callstack tree
    * \warning very expensive
@@ -85,4 +76,4 @@ class StackTrace {
 
   StackTree::vertex_descriptor get_current_element() const;
 };
-#endif
+#endif  //! STACKTRACE_H

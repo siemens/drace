@@ -1,6 +1,5 @@
 #ifndef VARSTATE_HEADER_H
-#define VARSTATE_HEADER_H 1
-#pragma once
+#define VARSTATE_HEADER_H
 
 /*
  * DRace, a dynamic data race detector
@@ -133,4 +132,4 @@ class VarState {
       VectorClock<>::ThreadNum th_num,
       xvector<VectorClock<>::VC_EPOCH>* shared_vc) const;
 };
-#endif  // !VARSTATE_H
+#endif  // !VARSTATE_HEADER_H

@@ -29,8 +29,6 @@ void ThreadState::inc_vc() {
 void ThreadState::set_read_write(std::size_t addr, std::size_t pc) {
   auto it = read_write.find(addr);
   if (it == read_write.end()) {
-    // TODO: maybe use std::move avoid copy on pair
-    // should I do sth if traceDepot.GetCurrentElement() is nullptr??
     read_write.insert({addr, {pc, traceDepot.get_current_element()}});
   } else {
     it->second = {pc, traceDepot.get_current_element()};

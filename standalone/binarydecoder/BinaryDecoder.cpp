@@ -19,7 +19,6 @@
 #include "DetectorOutput.h"
 
 int main(int argc, char** argv) {
-  //    std::string detec = "drace.detector.tsan.dll";
   std::string detec = "drace.detector.fasttrack.standalone.dll";
   std::string file = "trace.bin";
 
@@ -46,14 +45,19 @@ int main(int argc, char** argv) {
     std::vector<ipc::event::BufferEntry> buffer(
         (size_t)(size / sizeof(ipc::event::BufferEntry)));
 
-    __debugbreak();
+    /**
+     * \note debug breaks are placed to measure only the performance of the
+     * detection algorithm, however, on a single thread. They are placed right
+     * before the first operation of the detector and right after the last one
+     */
+    // __debugbreak();
     DetectorOutput output(detec.c_str());
     if (in_file.read((char*)(buffer.data()), size).good()) {
       for (auto it = buffer.begin(); it != buffer.end(); ++it) {
         ipc::event::BufferEntry tmp = *it;
         output.makeOutput(&tmp);
       }
-      __debugbreak();
+      // __debugbreak();
     }
   } catch (const std::exception& e) {
     std::cerr << "Could not load detector: " << e.what() << std::endl;

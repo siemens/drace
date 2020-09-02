@@ -1,6 +1,5 @@
 #ifndef FASTTRACK_H
 #define FASTTRACK_H
-#pragma once
 
 /*
  * DRace, a dynamic data race detector
@@ -104,8 +103,7 @@ class Fasttrack : public Detector {
   static constexpr uint64_t shared_vcs_number_of_sub_maps = 0x4ull;
   template <class K, class V>
   using phmap_parallel_node_hash_map = phmap::parallel_node_hash_map<
-      K, V, phmap::container_internal::hash_default_hash<K>,
-      phmap::container_internal::hash_default_eq<K>,
+      K, V, phmap::priv::hash_default_hash<K>, phmap::priv::hash_default_eq<K>,
       std::allocator<std::pair<const K, V>>, shared_vcs_number_of_sub_maps,
       ipc::spinlock>;
   phmap_parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_EPOCH>>
@@ -119,8 +117,7 @@ class Fasttrack : public Detector {
   static constexpr uint64_t vars_number_of_sub_maps = 0x5ull;
   template <class K, class V>
   using phmap_parallel_node_hash_map_no_lock = phmap::parallel_node_hash_map<
-      K, V, phmap::container_internal::hash_default_hash<K>,
-      phmap::container_internal::hash_default_eq<K>,
+      K, V, phmap::priv::hash_default_hash<K>, phmap::priv::hash_default_eq<K>,
       std::allocator<std::pair<const K, V>>,
       vars_number_of_sub_maps,  // number of SubMaps; change here affects
                                 // dropSubMap removal policy
@@ -504,7 +501,7 @@ class Fasttrack : public Detector {
       }
     }
 
-    if (shared_vc != nullptr && v->get_vc_by_th_num(th_num, shared_vc) ==
+    if (nullptr != shared_vc && v->get_vc_by_th_num(th_num, shared_vc) ==
                                     id) {  // read shared same epoch
       if (log_flag) {
         log_count.read_sh_same_epoch++;
@@ -521,7 +518,7 @@ class Fasttrack : public Detector {
     }
 
     // update vc
-    if (shared_vc == nullptr) {  // if it's not read shared
+    if (nullptr == shared_vc) {  // if it's not read shared
       if (v->get_read_epoch() == VarState::VAR_NOT_INIT ||
           (v->get_read_thread_num() ==
            th_num)) {  // read exclusive => read of same thread but newer epoch
@@ -550,7 +547,7 @@ class Fasttrack : public Detector {
                         std::size_t addr,
                         xvector<VectorClock<>::VC_EPOCH>* shared_vc) {
     if (is_write) {
-      if (shared_vc != nullptr) {
+      if (nullptr != shared_vc) {
         shared_vcs.erase(addr);
         v->set_read_epoch(VarState::VAR_NOT_INIT);
       }
@@ -559,7 +556,7 @@ class Fasttrack : public Detector {
     }
 
     // read, but not in shared mode
-    if (shared_vc == nullptr) {
+    if (nullptr == shared_vc) {
       v->set_read_epoch(id);
       return;
     }
@@ -621,7 +618,7 @@ class Fasttrack : public Detector {
       }
     }
 
-    if (shared_vc == nullptr) {
+    if (nullptr == shared_vc) {
       if (log_flag) {
         log_count.write_exclusive++;
       }
@@ -771,10 +768,10 @@ class Fasttrack : public Detector {
       // the mask depends on the number of SubMaps of vars
       static constexpr size_t mask = (1 << vars_number_of_sub_maps) - 1;
       static size_t index = 0;
-      vars.dropSubMap((index & mask));
+      vars.clear((index & mask));
       for (auto it = threads.begin(); it != threads.end(); ++it) {
         // as there is no randomness same SubMap is dropped.
-        it->second->read_write.dropSubMap((index & mask));
+        it->second->read_write.clear((index & mask));
       }
       index++;
       if (log_flag) {
@@ -800,7 +797,8 @@ class Fasttrack : public Detector {
       if (VectorClock<>::make_thread_num(it->second.get_read_epoch()) ==
               th_num &&
           VectorClock<>::make_thread_num(it->second.get_read_epoch()) ==
-              th_num) {  // the memory address was accessed only by this thread
+              th_num) {  // the memory address was accessed only by this
+                         // thread
         auto tmp = it;
         it++;
         vars.erase(tmp);
@@ -925,7 +923,8 @@ class Fasttrack : public Detector {
     }
   }
 
-  /// removes memory addresses by choosing every 3 the one with the lowest clock
+  /// removes memory addresses by choosing every 3 the one with the lowest
+  /// clock
   void remove_memory_addresses_by_lowest_clock() {
     if (log_flag) {
       log_count.remove_memory_addresses_by_lowest_clock_calls++;
@@ -937,7 +936,8 @@ class Fasttrack : public Detector {
     auto remove_it = it;
 
     while (it != vars.end()) {
-      // gather data from 3 variables and remove the one with the lowest clock.
+      // gather data from 3 variables and remove the one with the lowest
+      // clock.
       if (it->second.get_write_clock() < min_clock) {
         remove_it = it;
         min_clock = it->second.get_write_clock();

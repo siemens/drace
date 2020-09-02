@@ -367,7 +367,7 @@ TEST(FasttrackTest, Drop_State_Indicate_Shared_Read_Write_Race) {
   const char* argv_mock[] = {"ft_test", "--size", "2"};
   void* tls[3];  // storage for TLS data
 
-  ft->init(1, argv_mock, rc_clb, nullptr);
+  ft->init(3, argv_mock, rc_clb, nullptr);
   ft->fork(0, 1, &tls[0]);  // t0
   ft->fork(0, 2, &tls[1]);  // t1
   ft->fork(0, 3, &tls[2]);  // t2
@@ -404,7 +404,7 @@ TEST(FasttrackTest, Write_Write_Race) {
   void* tls[3];                      // storage for TLS data
   void* mtx[2] = {(void*)0x123ull, (void*)0x1234ull};
 
-  ft->init(1, argv_mock, rc_clb, nullptr);
+  ft->init(3, argv_mock, rc_clb, nullptr);
   ft->fork(0, 1, &tls[0]);  // t0
   ft->fork(0, 2, &tls[1]);  // t1
   ft->fork(0, 3, &tls[2]);  // t2
