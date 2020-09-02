@@ -82,7 +82,7 @@ void StackTrace::push_stack_element(size_t element) {
     for (auto it = in_edges.first; it != in_edges.second; ++it) {
       // check here if such a node is already existant and use it if so
       tmp = boost::source(*it, _local_stack);
-      auto desc = _local_stack[tmp].addr;
+      size_t desc = _local_stack[tmp].addr;
 
       if (element == desc) {
         _ce = tmp;  // node is already there, use it

@@ -10,17 +10,26 @@
  *
  * SPDX-License-Identifier: MIT
  */
+
+#include <stack>
 #include "parallel_hashmap/phmap.h"
 /*
-    Implements a VectorClock.
-    Can hold arbitrarily much pairs of a Thread Id and the belonging clock
+---------------------------------------------------------------------
+Implements a VectorClock.
+Can hold an arbitrarily number pairs of Thread Numbers (replacement for
+Thread IDs) and the belonging clock
+---------------------------------------------------------------------
 */
+
 template <class _al = std::allocator<std::pair<const size_t, size_t>>>
 class VectorClock {
  public:
-  // on both 64 bits and 32 bits platform, 32 bits will be used for VC_ID
-  // first 14 bits represent the TID and last 18 bits the Clock
-  typedef uint32_t VC_ID;
+  typedef uint32_t VC_ID;  // first 11 bits represent the TID / thread number
+                           // and last 21 bits the Clock
+  static constexpr uint32_t CLOCK_BITS = 21;
+  static constexpr uint32_t CLOCK_MASK = 0x1FFFFF;
+  // 32 comes from the fact that uint32_t has 32 bits
+  static constexpr uint32_t MAX_TH_NUM = (1 << (32 - CLOCK_BITS)) - 1;
   typedef uint32_t TID;
   typedef uint32_t Clock;
   typedef uint32_t Thread_Num;
@@ -106,22 +115,22 @@ class VectorClock {
 
   /// returns the tid of the id
   static constexpr TID make_tid(VC_ID id) {
-    Thread_Num th_num = id >> 18;
+    Thread_Num th_num = id >> CLOCK_BITS;
     return make_tid_from_th_num(th_num);
   }
 
   /// returns the clock of the id
   static constexpr Clock make_clock(VC_ID id) {
-    return static_cast<Clock>(id & 0x3FFFF);
+    return static_cast<Clock>(id & CLOCK_MASK);
   }
 
   /// returns the clock of the id
   static constexpr Thread_Num make_th_num(VC_ID id) {
-    return static_cast<Thread_Num>(id >> 18);
+    return static_cast<Thread_Num>(id >> CLOCK_BITS);
   }
 
   static constexpr TID make_tid_from_th_num(Thread_Num th_num) {
-    auto it = thread_ids.find(static_cast<Thread_Num>(th_num));
+    auto it = thread_ids.find(th_num);
     if (it != thread_ids.end()) {
       return static_cast<TID>(it->second);
     } else {  // we should never reach this one
@@ -129,25 +138,42 @@ class VectorClock {
     }
   }
 
-  static Thread_Num thread_no;
+  // TODO: put them at the top
+  static std::stack<Thread_Num> thread_nums;
   static phmap::flat_hash_map<VectorClock<>::Thread_Num, VectorClock<>::TID>
       thread_ids;
 
   /// creates an id with clock=0 from an tid
   static constexpr VC_ID make_id(TID tid) {
+    Thread_Num thread_no = thread_nums.top();
+    thread_nums.pop();
+
+    // checking for empty stack, no more thread numbers left
+    // bool empty_stack = false;
+    // if (thread_nums.empty()) {
+    //  empty_stack = true;
+    //}
+    // while (empty_stack) {
+    //  if (!thread_nums.empty()) empty_stack = false;
+    //}
+
     thread_ids.emplace(thread_no, tid);
-    VC_ID id = thread_no << 18;  // epoch is 0
-    thread_no++;
-    if (thread_no >= 16384) {
-      // 16383 is the maximum number of threads. Afterwards we'll have to
-      // overwrite them if thread_no goes over 16384, no TIDs will be found
-      // anymore in thread_ids => queue functionality;
-      thread_no = 1;
-    }
+    VC_ID id = thread_no << CLOCK_BITS;  // epoch is 0
     return id;
   }
+
+ private:
+  static bool _thread_no_initiliazation;
+  static bool ThreadNoInitialization() {
+    for (int i = MAX_TH_NUM; i >= 1; --i) {
+      thread_nums.emplace(i);
+    }
+    return true;
+  }
 };
-VectorClock<>::Thread_Num VectorClock<>::thread_no = 1;
+std::stack<VectorClock<>::Thread_Num> VectorClock<>::thread_nums;
+bool VectorClock<>::_thread_no_initiliazation =
+    VectorClock<>::ThreadNoInitialization();
 phmap::flat_hash_map<VectorClock<>::Thread_Num, VectorClock<>::TID>
     VectorClock<>::thread_ids;
 #endif

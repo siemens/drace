@@ -13,7 +13,9 @@
 
 #include <detector/Detector.h>
 #include <ipc/spinlock.h>
-#include <chrono>  //for profiling + seeding random generator
+#include <parallel_hashmap/phmap_utils.h>  // minimal header providing phmap::HashState()
+#include <chrono>   //for profiling + seeding random generator
+#include <fstream>  //for writing values of hash function to file
 #include <iomanip>
 #include <iostream>
 #include <mutex>   // for lock_guard
@@ -33,23 +35,8 @@
 Define for easier debugging and profiling for optimization
 ---------------------------------------------------------------------
 */
-#define PROF_INFO true
-#if PROF_INFO
 #include "prof.h"
-#endif
-
-/// switch debugging of the tool ON & OFF to generate debug code
-#define DEBUG_INFO false
-#if DEBUG_INFO
-#define deb(x) std::cout << #x << " = " << std::setw(3) << std::dec << x << " "
-#define deb_hex(x) \
-  std::cout << #x << " = 0x" << std::hex << x << std::dec << " "
-#define deb_long(x) \
-  std::cout << std::setw(50) << #x << " = " << std::setw(12) << x << " "
-#define deb_short(x) \
-  std::cout << std::setw(25) << #x << " = " << std::setw(5) << x << " "
-#define newline() std::cout << std::endl
-#endif
+#define PROF_INFO false
 
 ///\todo implement a pool allocator
 #if POOL_ALLOC
@@ -81,9 +68,6 @@ class Fasttrack : public Detector {
   /// central lock, used for accesses to global tables except vars (order: 1)
   LockT g_lock;
 
-  /// spinlock to protect accesses to vars table (order: 2)
-  mutable ipc::spinlock vars_spl;
-
   /*
 ---------------------------------------------------------------------
  Variables to be defined via an external framework
@@ -100,12 +84,6 @@ class Fasttrack : public Detector {
   bool _flag_removeLowestClockVarStates = (false && DELETE_POLICY);
   std::size_t vars_size = 50000;  // TODO: optimal threshold
 
-  template <class K, class V>
-  using phmap_parallel_node_hash_map = phmap::parallel_node_hash_map<
-      K, V, phmap::container_internal::hash_default_hash<K>,
-      phmap::container_internal::hash_default_eq<K>,
-      std::allocator<std::pair<const K, V>>, 4, ipc::spinlock>;
-
   /// these maps hold the various state objects together with the identifiers
   phmap::parallel_flat_hash_map<size_t, size_t> allocs;
 
@@ -113,13 +91,24 @@ class Fasttrack : public Detector {
   // while an address has a pointer, another one may add to the HashMap,
   // as the locks are on address => we might invalidate our pointers from
   // another adress
+  template <class K, class V>
+  using phmap_parallel_node_hash_map = phmap::parallel_node_hash_map<
+      K, V, phmap::container_internal::hash_default_hash<K>,
+      phmap::container_internal::hash_default_eq<K>,
+      std::allocator<std::pair<const K, V>>, 4, ipc::spinlock>;
   phmap_parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_ID>>
       shared_vcs;
 
   // we have to use a node hash map here, as we access it from multiple
   // threads => the HashMap might grow in the meantime => we would
   // invalidate our pointers unless we use a node map
-  phmap::parallel_node_hash_map<size_t, VarState> vars;
+  template <class K, class V>
+  using phmap_parallel_node_hash_map_no_lock = phmap::parallel_node_hash_map<
+      K, V, phmap::container_internal::hash_default_hash<K>,
+      phmap::container_internal::hash_default_eq<K>,
+      std::allocator<std::pair<const K, V>>, 5,
+      ipc::spinlock>;  // phmap::NullMutex
+  phmap_parallel_node_hash_map_no_lock<size_t, VarState> vars;
 
   // number of locks, threads is expected to be < 1000, hence use one map
   // (without submaps)
@@ -135,138 +124,53 @@ class Fasttrack : public Detector {
   // the last_min_th_clock modified from the last check
   VectorClock<>::Clock _last_min_th_clock = -1;
 
+  std::ofstream _hash_file;
+
  public:
   explicit Fasttrack() = default;
 
   bool init(int argc, const char** argv, Callback rc_clb) final {
     parse_args(argc, argv);
     clb = rc_clb;  // init callback
-    vars.reserve(vars_size);
+    vars.reserve(65535);
+    _hash_file.open("key_hash_values.txt");
     return true;
-  }
-
-  void finalize() final {
-    std::lock_guard<LockT> lg1(g_lock);
-    {
-      std::lock_guard<ipc::spinlock> lg2(vars_spl);
-
-      vars.clear();
-    }
-    locks.clear();
-    happens_states.clear();
-    allocs.clear();
-    threads.clear();
-    shared_vcs.clear();
-    VectorClock<>::thread_ids.clear();
-
-    if (final_output) process_log_output();
-#if PROF_INFO
-    ProfTimer::Print();
-#endif
   }
 
   // helper funtion for a unit_test -> might have its usage later
   void clearVarState(std::size_t addr) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     auto it = vars.find((size_t)(addr));
     if (it != vars.end()) {
       vars.erase(it);
     }
   }
 
-  inline void clearVarStates() {
-#if DEBUG_INFO
-    static int clearVarStates_calls = 0;
-    clearVarStates_calls++;
-    if (clearVarStates_calls % 50 == 0) {
-      std::cout << "====----------- clearVarStates call -----------====";
-      newline();
-      deb_short(vars.size());
-      deb_short(vars.capacity());
-      deb_short(_last_min_th_clock);
-      deb_short(threads.size());
-      newline();
-      deb_long(log_count.removeUselessVarStates_calls);
-      deb_long(log_count.removeRandomVarStates_calls);
-      deb_long(log_count.removeVarStates_calls);
-      newline();
-      deb_long(log_count.no_Useless_VarStates_removed);
-      deb_long(log_count.no_Useful_VarStates_removed);
-      deb_long(log_count.no_Random_VarStates_removed);
-      newline();
-      std::this_thread::sleep_for(std::chrono::seconds(5));
-    }
-#endif
-
-    if (_flag_removeUselessVarStates) {
-      static uint32_t should_call = 1;
-      static uint32_t consider_useless = 1;
-#if DEBUG_INFO
-      // deb(consider_useless);
-      // deb(should_call);
-#endif
-      if (should_call >= consider_useless) {
-        VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
-        if (_last_min_th_clock == tmp) {
-          consider_useless *= 2;
-        } else {
-          _last_min_th_clock = tmp;
-          consider_useless = 1;
-        }
-        should_call = 1;
-        return;
-      } else {
-        should_call++;
-      }
-    }
-    if (_flag_removeDropSubMaps) {
-      constexpr size_t mask = 0xFull;
-      static size_t index = 0;
-      vars.dropSubMap((index & mask));
-      index++;
-      if (log_flag) {
-        log_count.dropSubMap_calls++;
-      }
-#if DEBUG_INFO
-      vars.list_characteristics();
-      static int no_call = 1;
-      no_call++;
-      if (no_call % 10 == 0) {
-        std::this_thread::sleep_for(std::chrono::seconds(5));
-      }
-#endif
-    }
-    if (_flag_removeRandomVarStates) {
-      removeRandomVarStates();
-    }
-    if (_flag_removeLowestClockVarStates) {
-      removeVarStates();
-    }
-  }
-
   void read(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-#if PROF_INFO
-    PROF_START_BLOCK("set_read_write")
-#endif
-    thr->get_stackDepot().set_read_write((size_t)(addr),
+    thr->get_stackDepot().set_read_write((size_t)addr,
                                          reinterpret_cast<size_t>(pc));
-#if PROF_INFO
-    PROF_END_BLOCK
-#endif
 
     {  // lock on the address
-      std::lock_guard<ipc::spinlock> lg(
-          spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
+      std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((std::size_t)addr)]);
 
       VarState* var;
       {  // finds the VarState instance of a specific addr or creates it
-        std::lock_guard<ipc::spinlock> exLockT(vars_spl);
 #if DELETE_POLICY
         if (vars.size() >= vars_size) {
           clearVarStates();
         }
 #endif
-        auto it = vars.find((size_t)addr);
+#if PROF_INFO
+        PROF_START_BLOCK("find")
+#endif
+        //{
+        //  std::lock_guard<LockT> exLockT(g_lock);
+        //  vars.hash_test((size_t)addr, _hash_file);
+        //}
+        auto it = vars.find((size_t)addr, (size_t)addr);
         if (it == vars.end()) {
 #if MAKE_OUTPUT
           std::cout << "variable is read before written"
@@ -275,6 +179,9 @@ class Fasttrack : public Detector {
           it = create_var((size_t)(addr));
         }
         var = &(it->second);
+#if PROF_INFO
+        PROF_END_BLOCK
+#endif
       }
       read(thr, var, (size_t)addr, size);
     }
@@ -286,22 +193,26 @@ class Fasttrack : public Detector {
                                          reinterpret_cast<size_t>(pc));
 
     {  // lock on the address
-      std::lock_guard<ipc::spinlock> lg(
-          spinlocks[hashOf((std::size_t)addr) & 0x3FFull]);
+      std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((std::size_t)addr)]);
 
       VarState* var;
       {  // finds the VarState instance of a specific addr or creates it
-        std::lock_guard<ipc::spinlock> exLockT(vars_spl);
 #if DELETE_POLICY
         if (vars.size() >= vars_size) {
           clearVarStates();
         }
 #endif
-        auto it = vars.find((size_t)addr);
+#if PROF_INFO
+        PROF_START_BLOCK("find")
+#endif
+        auto it = vars.find((size_t)addr, (size_t)addr);
         if (it == vars.end()) {
           it = create_var((size_t)(addr));
         }
         var = &(it->second);
+#if PROF_INFO
+        PROF_END_BLOCK
+#endif
       }
       write(thr, var, (size_t)addr, size);
     }
@@ -334,6 +245,9 @@ class Fasttrack : public Detector {
   }
 
   void join(tid_t parent, tid_t child) final {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     std::lock_guard<LockT> exLockT(g_lock);
     auto del_thread_it = threads.find(child);
     auto parent_it = threads.find(parent);
@@ -354,6 +268,8 @@ class Fasttrack : public Detector {
     ts_ptr par_thread = parent_it->second;
 
     par_thread->update(*del_thread);
+
+    removeVarStatesOfThread(del_thread_th_num);
 
     threads.erase(del_thread_it);  // no longer do the search
     cleanup(del_thread_th_num);
@@ -443,18 +359,15 @@ class Fasttrack : public Detector {
 
     std::lock_guard<LockT> exLockT(g_lock);
     end_addr = address + allocs[address];  // allocs[address] = size;
+    // TODO: use allocs.find
 
     // variable is deallocated so varstate objects can be destroyed
     while (address < end_addr) {  // we deallocate each address
-      /*
-      Let's say we have a big vector that gets allocated. we track the
+      /* Let's say we have a big vector that gets allocated. we track the
       allocation, but we don't create the Var state objects for the
       adresses. We create them 1 by 1 on each access. But when we deallocate
       we clear all of them.*/
-      std::lock_guard<ipc::spinlock> lg(vars_spl);
       if (vars.find(address) != vars.end()) {
-        // TODO: why does this exist ?
-        // auto& var = vars.find(address)->second;
         vars.erase(address);
         address++;
       } else {
@@ -471,6 +384,9 @@ class Fasttrack : public Detector {
   }
 
   void finish(tls_t tls, tid_t thread_id) final {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     std::lock_guard<LockT> exLockT(g_lock);
     /// just delete thread from list, no backward sync needed
     VectorClock<>::Thread_Num th_num;
@@ -479,6 +395,28 @@ class Fasttrack : public Detector {
 
     threads.erase(thrit);
     cleanup(th_num);
+  }
+
+  void finalize() final {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
+    std::lock_guard<LockT> lg1(g_lock);
+    vars.clear();
+    locks.clear();
+    happens_states.clear();
+    allocs.clear();
+    threads.clear();
+    shared_vcs.clear();
+    VectorClock<>::thread_ids.clear();
+
+    if (final_output) process_log_output();
+#if PROF_INFO
+    ProfTimer::Print();
+#endif
+    fflush(stdout);
+    std::cout << std::flush;
+    _hash_file.close();
   }
 
   /**
@@ -493,7 +431,10 @@ class Fasttrack : public Detector {
   const char* version() final { return "0.0.1"; }
 
  private:
-  constexpr std::size_t hashOf(std::size_t addr) const { return (addr >> 4); }
+  static constexpr unsigned long long _addr_mask = 0x3FFull;
+  constexpr std::size_t hashOf(std::size_t addr) const {
+    return (addr >> 4) & _addr_mask;
+  }
 
   /**
    * \brief report a data-race back to DRace
@@ -571,7 +512,7 @@ class Fasttrack : public Detector {
    */
   void read(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
 #if PROF_INFO
-    PROF_FUNCTION();
+    PROF_FUNCTION()
 #endif
     if (t->return_own_id() ==
         v->get_read_id()) {  // read same epoch, same thread;
@@ -641,8 +582,9 @@ class Fasttrack : public Detector {
                        std::size_t addr,
                        xvector<VectorClock<>::VC_ID>* shared_vc) {
 #if PROF_INFO
-    PROF_FUNCTION();
+    PROF_FUNCTION()
 #endif
+
     if (is_write) {  // we have to do shared_vcs.erase() here
                      // shared_vcs_it is for sure a phmap::iterator
       if (shared_vc != nullptr) {
@@ -685,7 +627,7 @@ class Fasttrack : public Detector {
    */
   void write(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
 #if PROF_INFO
-    PROF_FUNCTION();
+    PROF_FUNCTION()
 #endif
     if (t->return_own_id() == v->get_write_id()) {  // write same epoch
       if (log_flag) {
@@ -750,13 +692,12 @@ class Fasttrack : public Detector {
    */
   inline auto create_var(size_t addr) {
 #if PROF_INFO
-    PROF_FUNCTION()
+    PROF_FUNCTION();
 #endif
     if (log_flag) {
       log_count.no_allocatedVarStates++;
     }
-    return vars.emplace(addr, VarState())
-        .first;  //, static_cast<uint16_t>(size)
+    return vars.emplace(addr, VarState()).first;
   }
 
   /// creates a new lock object (is called when a lock is acquired or released
@@ -817,6 +758,9 @@ class Fasttrack : public Detector {
    * finish()) \note Not Threadsafe
    */
   void cleanup(VectorClock<>::Thread_Num th_num) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
     {
       for (auto it = locks.begin(); it != locks.end(); ++it) {
         it->second.delete_vc(th_num);
@@ -828,6 +772,66 @@ class Fasttrack : public Detector {
 
       for (auto it = happens_states.begin(); it != happens_states.end(); ++it) {
         it->second.delete_vc(th_num);
+      }
+    }
+    VectorClock<>::thread_nums.emplace(th_num);
+  }
+
+  inline void clearVarStates() {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
+    if (_flag_removeUselessVarStates) {
+      static uint32_t should_call = 1;
+      static uint32_t consider_useless = 1;
+      if (should_call >= consider_useless) {
+        VectorClock<>::Clock tmp = removeUselessVarStates(_last_min_th_clock);
+        if (_last_min_th_clock == tmp) {
+          consider_useless *= 2;
+        } else {
+          _last_min_th_clock = tmp;
+          consider_useless = 1;
+        }
+        should_call = 1;
+        return;
+      } else {
+        should_call++;
+      }
+    }
+    if (_flag_removeDropSubMaps) {
+      constexpr size_t mask = 0xFull;
+      static size_t index = 0;
+      vars.dropSubMap((index & mask));
+      index++;
+      if (log_flag) {
+        log_count.dropSubMap_calls++;
+      }
+    }
+    if (_flag_removeRandomVarStates) {
+      removeRandomVarStates();
+    }
+    if (_flag_removeLowestClockVarStates) {
+      removeVarStates();
+    }
+  }
+
+  void removeVarStatesOfThread(VectorClock<>::Thread_Num th_num) {
+#if PROF_INFO
+    PROF_FUNCTION();
+#endif
+    auto it = vars.begin();
+    while (it != vars.end()) {
+      if (VectorClock<>::make_th_num(it->second.get_write_id()) == th_num ||
+          VectorClock<>::make_th_num(it->second.get_read_id()) == th_num) {
+        auto tmp = it;
+        it++;
+        vars.erase(tmp);
+
+        if (log_flag) {
+          log_count.no_VarStates_Of_Thread_removed++;
+        }
+      } else {
+        it++;
       }
     }
   }
@@ -981,6 +985,7 @@ class Fasttrack : public Detector {
     std::size_t no_Random_VarStates_removed = 0;
     std::size_t no_allocatedVarStates = 0;
     std::size_t dropSubMap_calls = 0;
+    std::size_t no_VarStates_Of_Thread_removed = 0;
   } log_count;
 
  private:
@@ -1044,12 +1049,14 @@ class Fasttrack : public Detector {
               << std::endl;
     std::cout << "dropSubMap_calls calls: " << log_count.dropSubMap_calls
               << std::endl;
-    std::cout << "no4_Useful_VarStates_removed: "
+    std::cout << "no_Useful_VarStates_removed: "
               << log_count.no_Useful_VarStates_removed << std::endl;
     std::cout << "no_Useless_VarStates_removed: "
               << log_count.no_Useless_VarStates_removed << std::endl;
     std::cout << "no_Random_VarStates_removed: "
               << log_count.no_Random_VarStates_removed << std::endl;
+    std::cout << "no_VarStates_Of_Thread_removed: "
+              << log_count.no_VarStates_Of_Thread_removed << std::endl;
     std::cout << "number of allocated VarStates: "
               << log_count.no_allocatedVarStates << std::endl;
     std::cout << "wr_race: " << log_count.wr_race << std::endl;
