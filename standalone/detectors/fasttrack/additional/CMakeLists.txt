@@ -8,6 +8,7 @@ endif()
 
 target_include_directories("profiling"
                 PUBLIC "include"
+                PUBLIC "../include"
                 PUBLIC "${Boost_INCLUDE_DIR}")
 
 #find_package(easy_profiler REQUIRED)

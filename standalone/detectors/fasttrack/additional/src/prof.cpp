@@ -13,69 +13,23 @@
 #include <unordered_map>
 #include <vector>
 #include "parallel_hashmap/phmap.h"
-
-class MemoryTrie {
-  // 16 is the maximum number of numbers
-  // a hex value represented memory address can have
-  static constexpr int MAX_SIZE = 10;
-
-  typedef struct TrieNode {
-    TrieNode* values[MAX_SIZE];
-
-    bool endOfAddress;
-  } TrieNode;
-
-  TrieNode* _root;
-
-  TrieNode* NewNode() {
-    TrieNode* newNode = new TrieNode();
-    newNode->endOfAddress = false;
-    for (int i = 0; i < MAX_SIZE; i++) newNode->values[i] = nullptr;
-    return newNode;
-  }
-
- public:
-  MemoryTrie() { _root = NewNode(); }
-
-  void InsertValue(std::string&& _addr) {
-    std::string addr = std::move(_addr);
-    TrieNode* iter = _root;
-
-    for (int i = 0; i < addr.length(); ++i) {
-      int index = addr[i] - 48;
-      if (!iter->values[index]) iter->values[index] = NewNode();
-      iter = iter->values[index];
-    }
-    iter->endOfAddress = true;
-  }
-
-  bool SearchValue(std::string&& _addr) {
-    std::string addr = std::move(_addr);
-    TrieNode* iter = _root;
-
-    for (int i = 0; i < addr.length(); ++i) {
-      int index = addr[i] - 48;
-      if (!iter->values[index]) return false;
-
-      iter = iter->values[index];
-    }
-    return (iter != nullptr && iter->endOfAddress);
-  }
-};
+#include "stacktrie.h"
+#include "trie.h"
 
 /*
 ---------------------------------------------------------------------
-Small application developed to check the time used to find the memory addresses
-in different data structures
+Small application to test separately different parts of the necessary
+code
 ---------------------------------------------------------------------
 */
 
+void test_overflow();
+void test_vector();
+void test_memoryTrie();
+int memory_speed_test();
 struct VC_ID {
   uint32_t TID : 10, Clock : 22;
 };
-void test_overflow();
-void test_vector();
-void test_memoryTrie(std::vector<size_t>& addr);
 
 typedef struct TH_NO {
   uint32_t num : 10;
@@ -90,6 +44,60 @@ using phmap_parallel_node_hash_map_no_mtx = phmap::parallel_node_hash_map<
 phmap_parallel_node_hash_map_no_mtx<size_t, VarState> vars;
 
 int main() {
+  test_memoryTrie();
+  return 0;
+}
+
+void test_memoryTrie() {
+  __debugbreak();
+
+  std::string file_name = "hash_values.txt";
+  std::ifstream file;
+
+  file.open(file_name);
+  if (!file.good()) {
+    std::cerr << "File not found: " << file_name << std::endl;
+  }
+
+  std::vector<size_t> addr;
+  std::vector<size_t> hashes;
+  std::string line;
+  while (std::getline(file, line)) {
+    std::size_t value;
+    std::stringstream lineStream(line);
+    lineStream >> value;
+    addr.emplace_back(value);
+    std::size_t hash_value;
+    lineStream >> hash_value;
+    hashes.emplace_back(hash_value);
+  }
+
+  StackTraceTrie* _memoryTrie = new StackTraceTrie();
+  for (int i = 0; i < 10; i++) {
+    std::cout << addr[i] << std::endl;
+    _memoryTrie->InsertValue(std::to_string(addr[i]), 1);
+  }
+
+  int i = 2;
+  // std::string tmp = std::to_string(addr[i]);
+  std::cout << std::boolalpha
+            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
+  i = 7;
+  std::cout << std::boolalpha
+            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
+  i = 9;
+  std::cout << std::boolalpha
+            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
+  i = 15;
+  std::cout << std::boolalpha
+            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
+  i = 18;
+  std::cout << std::boolalpha
+            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
+  std::cin.get();
+}
+
+int memory_speed_test() {
   std::string file_name = "hash_values.txt";
   std::ifstream file;
 
@@ -165,33 +173,6 @@ int main() {
 
   //__debugbreak();
   std::cin.get();
-  return 0;
-}
-
-void test_memoryTrie(std::vector<size_t>& addr) {
-  __debugbreak();
-  MemoryTrie* _memoryTrie = new MemoryTrie();
-  for (int i = 0; i < 10; i++) {
-    std::cout << addr[i] << std::endl;
-    _memoryTrie->InsertValue(std::to_string(addr[i]));
-  }
-
-  int i = 2;
-  // std::string tmp = std::to_string(addr[i]);
-  std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
-  i = 7;
-  std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
-  i = 9;
-  std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
-  i = 15;
-  std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
-  i = 18;
-  std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
 }
 
 void test_vector() {

@@ -20,8 +20,8 @@
 #include <iostream>
 #include <mutex>   // for lock_guard
 #include <random>  // for removeRandomVarState
+#include <stack>   //used for funcs stack in func_enter & func_exit
 #include "parallel_hashmap/phmap.h"
-#include "stacktrace.h"
 #include "threadstate.h"
 #include "varstate.h"
 #include "xvector.h"
@@ -120,11 +120,11 @@ class Fasttrack : public Detector {
   /// based on the addr that they need from the Map
   std::array<ipc::spinlock, 1024> spinlocks;
 
+  std::stack<size_t> funcs;
+
   // used in removeUselessVarStates to skip the run through the HashMap unless
   // the last_min_th_clock modified from the last check
   VectorClock<>::Clock _last_min_th_clock = -1;
-
-  std::ofstream _hash_file;
 
  public:
   explicit Fasttrack() = default;
@@ -133,7 +133,7 @@ class Fasttrack : public Detector {
     parse_args(argc, argv);
     clb = rc_clb;  // init callback
     vars.reserve(65535);
-    _hash_file.open("key_hash_values.txt");
+    //_hash_file.open("key_hash_values.txt");
     return true;
   }
 
@@ -149,9 +149,10 @@ class Fasttrack : public Detector {
   }
 
   void read(tls_t tls, void* pc, void* addr, size_t size) final {
+    __debugbreak();
+    std::cout << "memory address= " << (size_t)addr;
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().set_read_write((size_t)addr,
-                                         reinterpret_cast<size_t>(pc));
+    thr->set_read_write((size_t)addr, reinterpret_cast<size_t>(pc));
 
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((std::size_t)addr)]);
@@ -166,10 +167,7 @@ class Fasttrack : public Detector {
 #if PROF_INFO
         PROF_START_BLOCK("find")
 #endif
-        //{
-        //  std::lock_guard<LockT> exLockT(g_lock);
-        //  vars.hash_test((size_t)addr, _hash_file);
-        //}
+        std::cout << "vars.find() " << std::endl;
         auto it = vars.find((size_t)addr, (size_t)addr);
         if (it == vars.end()) {
 #if MAKE_OUTPUT
@@ -183,14 +181,15 @@ class Fasttrack : public Detector {
         PROF_END_BLOCK
 #endif
       }
+      __debugbreak();
       read(thr, var, (size_t)addr, size);
     }
   }
 
   void write(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().set_read_write((size_t)addr,
-                                         reinterpret_cast<size_t>(pc));
+    // thr->get_stackDepot().set_read_write((size_t)addr,
+    //                                  reinterpret_cast<size_t>(pc));
 
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((std::size_t)addr)]);
@@ -220,12 +219,20 @@ class Fasttrack : public Detector {
 
   void func_enter(tls_t tls, void* pc) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().push_stack_element(reinterpret_cast<size_t>(pc));
+
+    // thr->get_stackDepot().push_stack_element(reinterpret_cast<size_t>(pc));
+
+    size_t tmp = reinterpret_cast<size_t>(pc);
+    thr->get_stackDepot().InsertValue(std::to_string(tmp), funcs.top());
+    funcs.emplace(tmp);
   }
 
   void func_exit(tls_t tls) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().pop_stack_element();
+
+    // thr->get_stackDepot().pop_stack_element();
+
+    funcs.pop();
   }
 
   void fork(tid_t parent, tid_t child, tls_t* tls) final {
@@ -392,7 +399,6 @@ class Fasttrack : public Detector {
     VectorClock<>::Thread_Num th_num;
     auto thrit = threads.find(thread_id);
     th_num = thrit->second->get_th_num();
-
     threads.erase(thrit);
     cleanup(th_num);
   }
@@ -416,7 +422,6 @@ class Fasttrack : public Detector {
 #endif
     fflush(stdout);
     std::cout << std::flush;
-    _hash_file.close();
   }
 
   /**
@@ -453,10 +458,12 @@ class Fasttrack : public Detector {
         it2 == it_end) {  // if thread_id is, because of finishing, not in
       return;             // stacktraces anymore, return
     }
-    std::list<size_t> stack1(
-        std::move(it->second->get_stackDepot().return_stack_trace(address)));
-    std::list<size_t> stack2(
-        std::move(it2->second->get_stackDepot().return_stack_trace(address)));
+    // std::list<size_t> stack1(
+    //    std::move(it->second->get_stackDepot().return_stack_trace(address)));
+    // std::list<size_t> stack2(
+    //    std::move(it2->second->get_stackDepot().return_stack_trace(address)));
+    std::list<size_t> stack1{1, 2, 3, 4, 5};
+    std::list<size_t> stack2{4, 5, 6, 7, 8};
 
     while (stack1.size() > Detector::max_stack_size) {
       stack1.pop_front();

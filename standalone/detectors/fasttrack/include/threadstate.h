@@ -16,6 +16,7 @@
 #include "stacktrace.h"
 #include "vectorclock.h"
 #include "xvector.h"
+#include "stacktrie.h"
 
 /// implements a threadstate, holds the thread's vectorclock and the thread's id
 /// (tid and act clock)
@@ -24,7 +25,7 @@ class ThreadState : public VectorClock<> {
   /// holds the tid and the actual clock value -> lower 18 bits are clock and 14
   /// bits are TID
   VectorClock<>::VC_ID id;
-  StackTrace traceDepot;
+  StackTraceTrie traceDepot;
   VectorClock<>::TID m_own_tid;
 
  public:
@@ -56,6 +57,21 @@ class ThreadState : public VectorClock<> {
   inline void delete_vector() { vc.clear(); }
 
   /// return stackDepot of this thread
-  StackTrace& get_stackDepot() { return traceDepot; }
+  StackTraceTrie& get_stackDepot() { return traceDepot; }
+
+  phmap::flat_hash_map<size_t, size_t> _read_write;
+
+  ///// reference to the current stack element
+  //size_t _ce;
+
+  void set_read_write(size_t addr, size_t pc) {
+  //TODO: need a lock
+    auto it = _read_write.find(addr);
+    if (it == _read_write.end()) {
+      _read_write.emplace(addr, pc);
+    } else {
+      it->second = pc;
+    }
+  }
 };
 #endif  // !THREADSTATE_H

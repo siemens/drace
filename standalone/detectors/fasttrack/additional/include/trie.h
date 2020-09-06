@@ -5,8 +5,6 @@
 #include <string>
 
 class MemoryTrie {
-  // 16 is the maximum number of numbers
-  // a hex value represented memory address can have
   static constexpr int MAX_SIZE = 10;
 
   typedef struct TrieNode {
@@ -27,24 +25,26 @@ class MemoryTrie {
  public:
   MemoryTrie() { _root = NewNode(); }
 
-  void InsertValue(std::string&& _addr) {
-    std::string addr = std::move(_addr);
+  void InsertValue(std::string& _addr) {
     TrieNode* iter = _root;
 
-    for (int i = 0; i < addr.length(); ++i) {
-      int index = addr[i] - 48;
+    for (int i = 0; i < _addr.length(); ++i) {
+      int index = _addr[i] - 48;
       if (!iter->values[index]) iter->values[index] = NewNode();
       iter = iter->values[index];
     }
     iter->endOfAddress = true;
   }
 
-  bool SearchValue(std::string&& _addr) {
-    std::string addr = std::move(_addr);
+  void RemoveValue(std::string& _addr) {
+
+  }
+
+  bool SearchValue(std::string& _addr) {
     TrieNode* iter = _root;
 
-    for (int i = 0; i < addr.length(); ++i) {
-      int index = addr[i] - 48;
+    for (int i = 0; i < _addr.length(); ++i) {
+      int index = _addr[i] - 48;
       if (!iter->values[index]) return false;
 
       iter = iter->values[index];
@@ -54,7 +54,7 @@ class MemoryTrie {
 };
 
 class HexMemoryTrie {
-  // 16 is the maximum number of characters a hex number can have
+  // 16 is the maximum number of characters a memory address in hexadecimal can have
   static constexpr int MAX_SIZE = 16;
 
   typedef struct TrieNode {
