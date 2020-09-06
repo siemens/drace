@@ -10,37 +10,49 @@
  */
 
 #include <fasttrack.h>
+
 #include <random>
 #include "gtest/gtest.h"
 
 #include "stacktrace.h"
+#include "stacktrie.h"
 
 using ::testing::UnitTest;
 
-TEST(FasttrackTest, basic_stacktrace) {
-  StackTrace st;
+TEST(FasttrackTest, Basic_StackTraceTrie) {
+  using namespace drace::detector;
+  auto ft = std::make_unique<Fasttrack<std::mutex>>();
 
-  st.push_stack_element(1);
-  st.set_read_write(100, 1000);
-  st.set_read_write(101, 1001);
+  auto rc_clb = [](const Detector::Race* r) {};
+  const char* argv_mock[] = {"ft_test"};
+  void* tls[1];  // storage for TLS data
 
-  st.push_stack_element(2);
-  st.set_read_write(102, 1002);
+  ft->init(1, argv_mock, rc_clb);
+  ft->fork(0, 1, &tls[0]);  // t0
 
-  st.push_stack_element(3);
-  st.set_read_write(103, 1004);
+  ft->func_enter(tls[0], (void*)1);
+  ft->read(tls[0], (void*)1000, (void*)100, 8);
+  ft->read(tls[0], (void*)1001, (void*)101, 8);
 
-  st.pop_stack_element();
+  ft->func_enter(tls[0], (void*)2);
+  ft->read(tls[0], (void*)1002, (void*)102, 8);
 
-  st.push_stack_element(1);
-  st.push_stack_element(2);
-  st.push_stack_element(6);
-  st.set_read_write(104, 1004);
-  st.push_stack_element(7);
+  ft->func_enter(tls[0], (void*)3);
+  ft->read(tls[0], (void*)1004, (void*)103, 8);
 
-  std::list<size_t> list = st.return_stack_trace(104);
+  ft->func_exit(tls[0]);
+
+  ft->func_enter(tls[0], (void*)1);
+  ft->func_enter(tls[0], (void*)2);
+  ft->func_enter(tls[0], (void*)6);
+  ft->read(tls[0], (void*)1004, (void*)104, 8);
+  ft->func_enter(tls[0], (void*)7);
+
+  ThreadState* thr = reinterpret_cast<ThreadState*>(tls[0]);
+  std::list<size_t> list = thr->return_stack_trace(104);
   std::vector<size_t> vec(list.begin(), list.end());
 
+  // TODO: should be modified.
   ASSERT_EQ(vec[0], 1);
   ASSERT_EQ(vec[1], 2);
   ASSERT_EQ(vec[2], 1);
@@ -56,6 +68,69 @@ TEST(FasttrackTest, ItemNotFoundInTrace) {
   // lookup element 40, which is not in the trace
   auto list = st.return_stack_trace(40);
   ASSERT_EQ(list.size(), 0);
+}
+
+TEST(FasttrackTest, ItemNotFoundInTrie) {
+  //void* tls[1];  // storage for TLS data
+  ThreadState* thr0 = new ThreadState(220);
+  thr0->get_stackDepot().InsertValue(std::to_string(42), 1);
+  bool f0 = thr0->get_stackDepot().SearchValue(std::to_string(104));
+
+  ASSERT_EQ(f0, 0);
+}
+
+TEST(FasttrackTest, Complex_StackTraceTrie) {
+  using namespace drace::detector;
+  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+
+  auto rc_clb = [](const Detector::Race* r) {};
+  const char* argv_mock[] = {"ft_test"};
+  void* tls[2];  // storage for TLS data
+
+  ft->init(1, argv_mock, rc_clb);
+  ft->fork(0, 1, &tls[0]);  // t0
+  ft->fork(0, 2, &tls[1]);  // t1
+
+  ft->func_enter(tls[0], (void*)1);
+  ft->func_enter(tls[0], (void*)3);
+  ft->func_enter(tls[0], (void*)5);
+  ft->func_exit(tls[0]);
+  ft->func_enter(tls[0], (void*)7);
+  ft->read(tls[0], (void*)1000, (void*)100, 8);
+  ft->read(tls[0], (void*)1001, (void*)101, 8);
+  ft->read(tls[0], (void*)1004, (void*)104, 8);
+
+  ft->func_enter(tls[1], (void*)1);
+  ft->func_enter(tls[1], (void*)2);
+  ft->func_enter(tls[1], (void*)4);
+  ft->func_exit(tls[1]);
+  ft->func_enter(tls[1], (void*)6);
+  ft->func_enter(tls[1], (void*)8);
+  ft->read(tls[1], (void*)1002, (void*)102, 8);
+  ft->read(tls[1], (void*)1004, (void*)103, 8);
+  ft->read(tls[1], (void*)1004, (void*)104, 8);
+  ft->func_exit(tls[1]);
+  ft->func_enter(tls[1], (void*)10);
+
+  ThreadState* thr0 = reinterpret_cast<ThreadState*>(tls[0]);
+  std::list<size_t> list0 = thr0->return_stack_trace(104);
+  std::vector<size_t> vec0(list0.begin(), list0.end());
+
+  ThreadState* thr1 = reinterpret_cast<ThreadState*>(tls[1]);
+  std::list<size_t> list1 = thr1->return_stack_trace(104);
+  std::vector<size_t> vec1(list1.begin(), list1.end());
+
+  ASSERT_EQ(vec0.size(), 4);
+  ASSERT_EQ(vec1.size(), 5);
+  ASSERT_EQ(vec0[0], 1);
+  ASSERT_EQ(vec0[1], 3);
+  ASSERT_EQ(vec0[2], 7);
+  ASSERT_EQ(vec0[3], 1004);
+  ASSERT_EQ(vec1[0], 1);
+  ASSERT_EQ(vec1[1], 2);
+  ASSERT_EQ(vec1[2], 6);
+  ASSERT_EQ(vec1[3], 8);
+  ASSERT_EQ(vec1[4], 1004);
 }
 
 TEST(FasttrackTest, stackInitializations) {
@@ -91,9 +166,9 @@ TEST(FasttrackTest, Indicate_Write_Write_Race) {
   const char* argv_mock[] = {"ft_test"};
   void* tls[2];  // storage for TLS data
 
-  ft->init(1, argv_mock, rc_clb);  
-  ft->fork(0, 1, &tls[0]);         // t0
-  ft->fork(0, 2, &tls[1]);         // t1
+  ft->init(1, argv_mock, rc_clb);
+  ft->fork(0, 1, &tls[0]);  // t0
+  ft->fork(0, 2, &tls[1]);  // t1
 
   ft->write(tls[0], (void*)0x78Eull, (void*)addr, 16);
   ft->write(tls[1], (void*)0x3A4Dull, (void*)addr, 16);
@@ -104,7 +179,7 @@ TEST(FasttrackTest, Indicate_Write_Write_Race) {
   EXPECT_EQ(ft->log_count.rw_sh_race, 0);
   ft->finalize();
 }
-//
+
 TEST(FasttrackTest, Indicate_Exclusive_Read_Write_Race) {
   std::size_t addr = 0x65BEull;
   using namespace drace::detector;
@@ -114,9 +189,9 @@ TEST(FasttrackTest, Indicate_Exclusive_Read_Write_Race) {
   const char* argv_mock[] = {"ft_test"};
   void* tls[2];  // storage for TLS data
 
-  ft->init(1, argv_mock, rc_clb);  
-  ft->fork(0, 1, &tls[0]);         // t0
-  ft->fork(0, 2, &tls[1]);         // t1
+  ft->init(1, argv_mock, rc_clb);
+  ft->fork(0, 1, &tls[0]);  // t0
+  ft->fork(0, 2, &tls[1]);  // t1
 
   ft->read(tls[0], (void*)0x687CDull, (void*)addr, 16);
   ft->write(tls[1], (void*)0x9765Dull, (void*)addr, 16);
@@ -137,9 +212,9 @@ TEST(FasttrackTest, Indicate_Write_Read_Race) {
   const char* argv_mock[] = {"ft_test"};
   void* tls[2];  // storage for TLS data
 
-  ft->init(1, argv_mock, rc_clb);  
-  ft->fork(0, 1, &tls[0]);         // t0
-  ft->fork(0, 2, &tls[1]);         // t1
+  ft->init(1, argv_mock, rc_clb);
+  ft->fork(0, 1, &tls[0]);  // t0
+  ft->fork(0, 2, &tls[1]);  // t1
 
   ft->write(tls[1], (void*)0x9868Dull, (void*)addr, 16);
   ft->read(tls[0], (void*)0x434CDull, (void*)addr, 16);
@@ -160,9 +235,9 @@ TEST(FasttrackTest, Indicate_No_Race_Read_Exclusive) {
   const char* argv_mock[] = {"ft_test"};
   void* tls[3];  // storage for TLS data
 
-  ft->init(1, argv_mock, rc_clb);  
-  ft->fork(0, 1, &tls[0]);         // t0
-  ft->fork(0, 2, &tls[1]);         // t1
+  ft->init(1, argv_mock, rc_clb);
+  ft->fork(0, 1, &tls[0]);  // t0
+  ft->fork(0, 2, &tls[1]);  // t1
 
   ft->acquire(tls[1], (void*)0x01000000, 1, true);
   ft->write(tls[1], (void*)0x5FFull, (void*)addr, 16);
@@ -186,12 +261,12 @@ TEST(FasttrackTest, Indicate_No_Race_Write_Exclusive) {
   auto ft = std::make_unique<Fasttrack<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r) {};
-  const char* argv_mock[] = { "ft_test" };
+  const char* argv_mock[] = {"ft_test"};
   void* tls[3];  // storage for TLS data
 
-  ft->init(1, argv_mock, rc_clb);  
-  ft->fork(0, 1, &tls[0]);         // t0
-  ft->fork(0, 2, &tls[1]);         // t1
+  ft->init(1, argv_mock, rc_clb);
+  ft->fork(0, 1, &tls[0]);  // t0
+  ft->fork(0, 2, &tls[1]);  // t1
 
   ft->acquire(tls[1], (void*)0x01000000, 1, true);
   ft->read(tls[1], (void*)0x5F3ull, (void*)addr, 16);
@@ -210,8 +285,8 @@ TEST(FasttrackTest, Indicate_No_Race_Write_Exclusive) {
   ft->finalize();
 }
 
-//this would have failed with the former condition in write():
-//write exclusive with VAR_NOT_INIT
+// this would have failed with the former condition in write():
+// write exclusive with VAR_NOT_INIT
 TEST(FasttrackTest, Indicate_Shared_Read_Write_Race) {
   std::size_t addr = 0x42Full;
   using namespace drace::detector;
@@ -231,9 +306,9 @@ TEST(FasttrackTest, Indicate_Shared_Read_Write_Race) {
   void* tls[3];  // storage for TLS data
 
   ft->init(1, argv_mock, rc_clb);
-  ft->fork(0, 1, &tls[0]);         // t0
-  ft->fork(0, 2, &tls[1]);         // t1
-  ft->fork(0, 3, &tls[2]);         // t2
+  ft->fork(0, 1, &tls[0]);  // t0
+  ft->fork(0, 2, &tls[1]);  // t1
+  ft->fork(0, 3, &tls[2]);  // t2
 
   ft->read(tls[0], (void*)0x5F3ull, (void*)addr, 16);
   ft->read(tls[1], (void*)0x5FFull, (void*)addr, 16);
@@ -246,9 +321,9 @@ TEST(FasttrackTest, Indicate_Shared_Read_Write_Race) {
   ft->finalize();
 }
 
-//check that read_shared variables can be dropped
+// check that read_shared variables can be dropped
 TEST(FasttrackTest, Drop_State_Indicate_Shared_Read_Write_Race) {
-  std::size_t addr[] = {0x5678Full, 0x678Full, 0x78Full };
+  std::size_t addr[] = {0x5678Full, 0x678Full, 0x78Full};
 
   using namespace drace::detector;
   auto ft = std::make_unique<Fasttrack<std::mutex>>();
@@ -256,13 +331,13 @@ TEST(FasttrackTest, Drop_State_Indicate_Shared_Read_Write_Race) {
   // t3 tries to write to addr
 
   auto rc_clb = [](const Detector::Race* r) {};
-  const char* argv_mock[] = { "ft_test" , "--size", "2" };
+  const char* argv_mock[] = {"ft_test", "--size", "2"};
   void* tls[3];  // storage for TLS data
 
   ft->init(1, argv_mock, rc_clb);
-  ft->fork(0, 1, &tls[0]);         // t0
-  ft->fork(0, 2, &tls[1]);         // t1
-  ft->fork(0, 3, &tls[2]);         // t2
+  ft->fork(0, 1, &tls[0]);  // t0
+  ft->fork(0, 2, &tls[1]);  // t1
+  ft->fork(0, 3, &tls[2]);  // t2
 
   ft->read(tls[0], (void*)0x5F3ull, (void*)addr[0], 16);
   ft->read(tls[1], (void*)0x5FFull, (void*)addr[0], 16);
@@ -290,14 +365,16 @@ TEST(FasttrackTest, Write_Write_Race) {
   auto ft = std::make_unique<Fasttrack<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r) {};
-  const char* argv_mock[] = { "ft_test" , "--size", "10"}; //making size bigger so the first variable will not be removed again
-  void* tls[3];  // storage for TLS data
-  void* mtx[2] = { (void*)0x123ull, (void*)0x1234ull };
+  const char* argv_mock[] = {"ft_test", "--size",
+                             "10"};  // making size bigger so the first variable
+                                     // will not be removed again
+  void* tls[3];                      // storage for TLS data
+  void* mtx[2] = {(void*)0x123ull, (void*)0x1234ull};
 
   ft->init(3, argv_mock, rc_clb);
-  ft->fork(0, 1, &tls[0]);         // t0
-  ft->fork(0, 2, &tls[1]);         // t1
-  ft->fork(0, 3, &tls[2]);         // t2
+  ft->fork(0, 1, &tls[0]);  // t0
+  ft->fork(0, 2, &tls[1]);  // t1
+  ft->fork(0, 3, &tls[2]);  // t2
 
   ft->write(tls[1], (void*)0x78Eull, (void*)addr0, 16);
 
@@ -336,7 +413,7 @@ TEST(FasttrackTest, Write_Write_Race) {
   ft->read(tls[2], (void*)0x5F3ull, (void*)addr5, 16);
   ft->release(tls[2], mtx[0], true);
 
-  ft->write(tls[2], (void*)0x78Eull, (void*)addr0, 16); //this is the race
+  ft->write(tls[2], (void*)0x78Eull, (void*)addr0, 16);  // this is the race
 
   EXPECT_EQ(ft->log_count.wr_race, 0);
   EXPECT_EQ(ft->log_count.rw_ex_race, 0);
