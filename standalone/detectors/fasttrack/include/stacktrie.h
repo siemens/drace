@@ -1,8 +1,6 @@
 #ifndef STACK_TRIE_HEADER_H
 #define STACK_TRIE_HEADER_H 1
 
-#include <string>
-
 class StackTraceTrie {
   static constexpr int MAX_SIZE = 10;
 
@@ -39,19 +37,20 @@ class StackTraceTrie {
  public:
   StackTraceTrie() { _root = NewNode(); }
 
-  void InsertValue(std::string& _addr, size_t parent_pc) {
+  void InsertValue(size_t _addr, size_t parent_pc) {
     TrieNode* iter = _root;
     TrieNode* last = nullptr;
     int index = -1;
     LastTrieNode* _lastTrieNode;
 
-    for (int i = 0; i < _addr.length(); ++i) {
-      index = _addr[i] - 48;
+    while (_addr != 0){
+      index = _addr % 10;
       if (!iter->values[index]) {
         iter->values[index] = NewNode();
       }
       last = iter;
       iter = iter->values[index];
+      _addr /= 10;
     }
     if (iter->endOfAddress == true) return;
     iter->endOfAddress = true;
@@ -101,14 +100,17 @@ class StackTraceTrie {
   // maybe I will need it in the future
   void RemoveValue(std::string& _addr) {}
 
-  bool SearchValue(std::string& _addr) {
+  bool SearchValue(size_t _addr) {
     TrieNode* iter = _root;
+    int index = -1;
 
-    for (int i = 0; i < _addr.length(); ++i) {
-      int index = _addr[i] - 48;
-      if (!iter->values[index]) return false;
-
+    while (_addr != 0) {
+      index = _addr % 10;
+      if (!iter->values[index]) {
+        iter->values[index] = NewNode();
+      }
       iter = iter->values[index];
+      _addr /= 10;
     }
     return (iter != nullptr && iter->endOfAddress);
   }
@@ -118,18 +120,21 @@ class StackTraceTrie {
     this_stack.push_front(data.first);
 
     size_t parent = data.second;
-    std::string _addr;
+    size_t _addr;
     TrieNode* iter;
 
     do {
       this_stack.push_front(parent);
-      _addr = std::to_string(parent);
+      _addr = parent;
       iter = _root;
       int index = -1;
-      for (int i = 0; i < _addr.length(); ++i) {
-        index = _addr[i] - 48;
+
+      while (_addr != 0) {
+        index = _addr % 10;
         iter = iter->values[index];  // It must exist; We should check though
+        _addr /= 10;
       }
+
       LastTrieNode* _lastTrieNode = dynamic_cast<LastTrieNode*>(iter);
       parent = _lastTrieNode->parent_pc;
     } while (parent != 0);

@@ -147,7 +147,7 @@ class Fasttrack : public Detector {
     }
     size_t tmp = reinterpret_cast<size_t>(pc);
     thr->funcs.emplace_back(tmp);
-    thr->get_stackDepot().InsertValue(std::to_string(tmp), thr->parent_ce);
+    thr->get_stackDepot().InsertValue(tmp, thr->parent_ce);
   }
 
   void func_exit(tls_t tls) final {

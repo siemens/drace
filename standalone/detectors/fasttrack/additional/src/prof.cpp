@@ -75,25 +75,25 @@ void test_memoryTrie() {
   StackTraceTrie* _memoryTrie = new StackTraceTrie();
   for (int i = 0; i < 10; i++) {
     std::cout << addr[i] << std::endl;
-    _memoryTrie->InsertValue(std::to_string(addr[i]), 1);
+    _memoryTrie->InsertValue(addr[i], 1);
   }
 
   int i = 2;
   // std::string tmp = std::to_string(addr[i]);
   std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
+            << _memoryTrie->SearchValue(addr[i]) << std::endl;
   i = 7;
   std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
+            << _memoryTrie->SearchValue(addr[i]) << std::endl;
   i = 9;
   std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
+            << _memoryTrie->SearchValue(addr[i]) << std::endl;
   i = 15;
   std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
+            << _memoryTrie->SearchValue(addr[i]) << std::endl;
   i = 18;
   std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(std::to_string(addr[i])) << std::endl;
+            << _memoryTrie->SearchValue(addr[i]) << std::endl;
   std::cin.get();
 }
 

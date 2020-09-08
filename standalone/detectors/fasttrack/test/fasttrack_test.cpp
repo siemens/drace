@@ -10,6 +10,7 @@
  */
 
 #include <fasttrack.h>
+#include "fasttrack_test.h"
 
 #include <random>
 #include "gtest/gtest.h"
@@ -71,10 +72,10 @@ TEST(FasttrackTest, ItemNotFoundInTrace) {
 }
 
 TEST(FasttrackTest, ItemNotFoundInTrie) {
-  //void* tls[1];  // storage for TLS data
+  // void* tls[1];  // storage for TLS data
   ThreadState* thr0 = new ThreadState(220);
-  thr0->get_stackDepot().InsertValue(std::to_string(42), 1);
-  bool f0 = thr0->get_stackDepot().SearchValue(std::to_string(104));
+  thr0->get_stackDepot().InsertValue(42, 1);
+  bool f0 = thr0->get_stackDepot().SearchValue(104);
 
   ASSERT_EQ(f0, 0);
 }
