@@ -167,6 +167,7 @@ static void register_detector(int argc, const char **argv,
 
   detector = std::unique_ptr<Detector>(create_detector());
   detector->init(argc, argv, RaceCollector::race_collector_add_race);
+  //init("fasttrack", argc, argv, RaceCollector::race_collector_add_race);
   LOG_INFO(0, "Detector %s initialized", detector_lib.c_str());
 }
 

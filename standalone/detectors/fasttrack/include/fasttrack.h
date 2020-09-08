@@ -87,7 +87,7 @@ class Fasttrack : public Detector {
         PROF_START_BLOCK("find")
 #endif
         // std::cout << "vars.find() " << std::endl;
-        auto it = vars.find((size_t)addr, (size_t)addr);
+        auto it = vars.find((size_t)addr);
         if (it == vars.end()) {
 #if MAKE_OUTPUT
           std::cout << "variable is read before written"
@@ -122,7 +122,7 @@ class Fasttrack : public Detector {
 #if PROF_INFO
         PROF_START_BLOCK("find")
 #endif
-        auto it = vars.find((size_t)addr, (size_t)addr);
+        auto it = vars.find((size_t)addr);
         if (it == vars.end()) {
           it = create_var((size_t)(addr));
         }
@@ -205,7 +205,7 @@ class Fasttrack : public Detector {
 
     par_thread->update(*del_thread);
 
-    removeVarStatesOfThread(del_thread_th_num);
+    //removeVarStatesOfThread(del_thread_th_num);
 
     threads.erase(del_thread_it);  // no longer do the search
     cleanup(del_thread_th_num);
