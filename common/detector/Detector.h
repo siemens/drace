@@ -61,7 +61,7 @@ class Detector {
     size_t heap_block_size;
     uintptr_t accessed_memory;
     uintptr_t heap_block_begin;
-    uintptr_t stack_trace[max_stack_size];
+    uintptr_t stack_trace[max_stack_size]; //maybe make it a std::array
   };
 
   /// A Data-Race is a tuple of two Accesses

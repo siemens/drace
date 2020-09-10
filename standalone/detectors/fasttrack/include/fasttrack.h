@@ -62,46 +62,37 @@ class Fasttrack : public Detector {
   bool init(int argc, const char** argv, Callback rc_clb) {
     parse_args(argc, argv);
     clb = rc_clb;  // init callback
-    vars.reserve(65535);
+    // vars.reserve(65535);
     //_hash_file.open("key_hash_values.txt");
     return true;
   }
 
   void read(tls_t tls, void* pc, void* addr, size_t size) final {
-    //__debugbreak();
-    // std::cout << "memory address= " << (size_t)addr;
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
     thr->set_read_write((size_t)addr, reinterpret_cast<size_t>(pc));
 
     {  // lock on the address
-      std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((std::size_t)addr)]);
-
-      VarState* var;
-      {  // finds the VarState instance of a specific addr or creates it
+      std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((size_t)addr)]);
 #if DELETE_POLICY
-        if (vars.size() >= vars_size) {
-          clearVarStates();
-        }
-#endif
-#if PROF_INFO
-        PROF_START_BLOCK("find")
-#endif
-        // std::cout << "vars.find() " << std::endl;
-        auto it = vars.find((size_t)addr);
-        if (it == vars.end()) {
-#if MAKE_OUTPUT
-          std::cout << "variable is read before written"
-                    << std::endl;  // warning
-#endif
-          it = create_var((size_t)(addr));
-        }
-        var = &(it->second);
-#if PROF_INFO
-        PROF_END_BLOCK
-#endif
+      if (vars.size() >= vars_size) {
+        clearVarStates();
       }
-      //__debugbreak();
-      read(thr, var, (size_t)addr, size);
+#endif
+#if PROF_INFO
+      PROF_START_BLOCK("find")
+#endif
+      // finds the VarState instance of a specific addr or creates it
+      auto it = vars.find((size_t)addr);
+      if (it == vars.end()) {
+#if MAKE_OUTPUT
+        std::cout << "variable is read before written" << std::endl;  // warning
+#endif
+        it = create_var((size_t)addr);
+      }
+#if PROF_INFO
+      PROF_END_BLOCK
+#endif
+      read(thr, &(it->second), (size_t)addr, size);
     }
   }
 
@@ -110,28 +101,24 @@ class Fasttrack : public Detector {
     thr->set_read_write((size_t)addr, reinterpret_cast<size_t>(pc));
 
     {  // lock on the address
-      std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((std::size_t)addr)]);
-
-      VarState* var;
-      {  // finds the VarState instance of a specific addr or creates it
+      std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((size_t)addr)]);
 #if DELETE_POLICY
-        if (vars.size() >= vars_size) {
-          clearVarStates();
-        }
-#endif
-#if PROF_INFO
-        PROF_START_BLOCK("find")
-#endif
-        auto it = vars.find((size_t)addr);
-        if (it == vars.end()) {
-          it = create_var((size_t)(addr));
-        }
-        var = &(it->second);
-#if PROF_INFO
-        PROF_END_BLOCK
-#endif
+      if (vars.size() >= vars_size) {
+        clearVarStates();
       }
-      write(thr, var, (size_t)addr, size);
+#endif
+#if PROF_INFO
+      PROF_START_BLOCK("find")
+#endif
+      // finds the VarState instance of a specific addr or creates it
+      auto it = vars.find((size_t)addr);
+      if (it == vars.end()) {
+        it = create_var((size_t)addr);
+      }
+#if PROF_INFO
+      PROF_END_BLOCK
+#endif
+      write(thr, &(it->second), (size_t)addr, size);
     }
   }
 
@@ -173,7 +160,7 @@ class Fasttrack : public Detector {
       {
         thrit->second->inc_vc();  // inc vector clock for creation of new thread
       }
-      thr = create_thread(child, threads[parent]);
+      thr = create_thread(child, thrit->second);
     } else {
       thr = create_thread(child);
     }
@@ -205,7 +192,7 @@ class Fasttrack : public Detector {
 
     par_thread->update(*del_thread);
 
-    //removeVarStatesOfThread(del_thread_th_num);
+    // removeVarStatesOfThread(del_thread_th_num);
 
     threads.erase(del_thread_it);  // no longer do the search
     cleanup(del_thread_th_num);
@@ -364,7 +351,7 @@ class Fasttrack : public Detector {
 
   const char* version() final { return "0.0.1"; }
 
- //protected:  // the log counters are public for testing
+  // protected:  // the log counters are public for testing
   /// statistics
   struct log_counters {
     uint32_t read_ex_same_epoch = 0;

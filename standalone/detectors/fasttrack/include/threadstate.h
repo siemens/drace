@@ -68,12 +68,12 @@ class ThreadState : public VectorClock<> {
   /// return stackDepot of this thread
   StackTraceTrie& get_stackDepot() { return traceDepot; }
 
-  void set_read_write(size_t addr, size_t pc) {
+  inline void set_read_write(size_t addr, size_t pc) {
     std::lock_guard<ipc::spinlock> lg(_read_write_lock);
     //TODO: put an assertion
     auto it = _read_write.find(addr);
     if (it == _read_write.end()) {
-      _read_write.insert({addr, {pc, funcs.back()}});
+      _read_write.insert({addr, {pc, funcs.back()}}); //TODO: maybe use std::move avoid copy on pair
     } else {
       it->second = {pc, funcs.back()};
     }

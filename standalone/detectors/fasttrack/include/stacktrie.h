@@ -116,15 +116,15 @@ class StackTraceTrie {
   }
 
   std::list<size_t> MakeTrace(const std::pair<size_t, size_t>& data) const {
-    std::list<size_t> this_stack;
-    this_stack.push_front(data.first);
+    std::list<size_t> this_stack; //maybe use a std::deque, much better than a list
+    this_stack.emplace_front(data.first);
 
     size_t parent = data.second;
     size_t _addr;
     TrieNode* iter;
 
     do {
-      this_stack.push_front(parent);
+      this_stack.emplace_front(parent);
       _addr = parent;
       iter = _root;
       int index = -1;
@@ -138,7 +138,7 @@ class StackTraceTrie {
       LastTrieNode* _lastTrieNode = dynamic_cast<LastTrieNode*>(iter);
       parent = _lastTrieNode->parent_pc;
     } while (parent != 0);
-    return this_stack;
+    return std::move(this_stack); // avoid unnecessary copy
   }
 };
 
