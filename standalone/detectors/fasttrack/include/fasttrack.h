@@ -180,6 +180,7 @@ class Fasttrack : public Detector {
     size_t id = t->return_own_id();
     uint32_t tid = t->get_tid();
 
+
     if (v->is_read_shared() &&
         v->get_vc_by_thr(tid) == id) {  // read shared same epoch
       if (log_flag) {
