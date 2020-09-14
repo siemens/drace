@@ -22,6 +22,8 @@
 #include <atomic>
 #include <memory>
 
+#include <detector/Detector.h>
+
 // forward decls
 class Detector;
 
@@ -53,6 +55,11 @@ extern std::unique_ptr<MemoryTracker> memory_tracker;
 /// Detector instance
 extern std::unique_ptr<Detector> detector;
 
+// extern void (*Read_Nvrt_Ptr)(Detector& detector, void* tls, void* pc, void*
+// addr,
+//                           size_t size);
+
+extern decltype(Read_Nvrt) *Read_Nvrt_Ptr;
 }  // namespace drace
 
 // MSR Communication Driver
