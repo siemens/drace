@@ -1053,6 +1053,7 @@ class Fasttrack : public Detector {
  public:
   // helper funtion for a unit_test
   void clearVarState(std::size_t addr) {
+    std::cout << "I am in clearVarState\n";
 #if PROF_INFO
     PROF_FUNCTION();
 #endif

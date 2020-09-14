@@ -325,3 +325,9 @@ class Tsan : public Detector {
 extern "C" __declspec(dllexport) Detector* CreateDetector() {
   return new drace::detector::Tsan();
 }
+
+// extern "C" __declspec(dllexport) void Read_Nvrt(Detector& detector, void* tls,
+//                                                 void* pc, void* addr,
+//                                                 size_t size) {
+//   detector.read(tls, pc, addr, size);
+// }

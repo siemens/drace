@@ -201,9 +201,16 @@ void MemoryTracker::analyze_access(ShadowThreadState &data) {
           // printf("[%i] WRITE %p, PC: %p\n", data.tid, mem_ref->addr,
           // mem_ref->pc);
         } else {
-          detector->read(
-              data.detector_data, reinterpret_cast<void *>(mem_ref->pc),
-              reinterpret_cast<void *>(mem_ref->addr), mem_ref->size);
+          if(Read_Nvrt_Ptr){
+            Read_Nvrt_Ptr(*detector, data.detector_data,
+                          reinterpret_cast<void *>(mem_ref->pc),
+                          reinterpret_cast<void *>(mem_ref->addr),
+                          mem_ref->size);
+          }else{
+            detector->read(
+                data.detector_data, reinterpret_cast<void *>(mem_ref->pc),
+                reinterpret_cast<void *>(mem_ref->addr), mem_ref->size);
+          }
           // printf("[%i] READ  %p, PC: %p\n", data.tid, mem_ref->addr,
           // mem_ref->pc);
         }

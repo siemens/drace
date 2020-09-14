@@ -111,3 +111,8 @@ class Printer : public Detector {
 extern "C" PRINTER_EXPORT Detector* CreateDetector() {
   return new drace::detector::Printer();
 }
+
+// extern "C" PRINTER_EXPORT void Read_Nvrt(Detector& detector, void* tls,
+//                                          void* pc, void* addr, size_t size) {
+//   detector.read(tls, pc, addr, size);
+// }

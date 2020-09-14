@@ -214,3 +214,6 @@ class Detector {
 
 /// create a new detector instance
 extern "C" DETECTOR_EXPORT Detector* CreateDetector();
+
+extern "C" DETECTOR_EXPORT void Read_Nvrt(Detector& detector, void* tls,
+                                         void* pc, void* addr, size_t size);

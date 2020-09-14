@@ -10,7 +10,6 @@
  */
 
 #include <fasttrack.h>
-#include "fasttrack_test.h"
 
 #include <random>
 #include "gtest/gtest.h"

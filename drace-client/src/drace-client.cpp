@@ -143,6 +143,7 @@ namespace drace {
 static void register_detector(int argc, const char **argv,
                               const std::string &detector_name) {
   decltype(CreateDetector) *create_detector = nullptr;
+  // decltype(Read_Nvrt) *Read_Nvrt_Ptr = nullptr;
   std::string detector_lib(::util::LibLoaderFactory::getModulePrefix() +
                            "drace.detector." + detector_name +
                            ::util::LibLoaderFactory::getModuleExtension());
@@ -160,14 +161,16 @@ static void register_detector(int argc, const char **argv,
       dr_abort();
     }
     create_detector = (*detector_loader)["CreateDetector"];
+    Read_Nvrt_Ptr = (*detector_loader)["Read_Nvrt"];
   } else {
     // tsan is loaded during startup, hence symbol is available
     create_detector = CreateDetector;
+    // Read_Nvrt_Ptr = Read_Nvrt;
   }
 
   detector = std::unique_ptr<Detector>(create_detector());
   detector->init(argc, argv, RaceCollector::race_collector_add_race);
-  //init("fasttrack", argc, argv, RaceCollector::race_collector_add_race);
+  // init("fasttrack", argc, argv, RaceCollector::race_collector_add_race);
   LOG_INFO(0, "Detector %s initialized", detector_lib.c_str());
 }
 
