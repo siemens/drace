@@ -73,7 +73,7 @@ extern "C" DUMMY_EXPORT Detector* CreateDetector() {
   return new drace::detector::Dummy();
 }
 
-extern "C" DUMMY_EXPORT void Read_Nvrt(Detector& detector, void* tls, void* pc,
-                                       void* addr, size_t size) {
-  detector.read(tls, pc, addr, size);
-}
+// extern "C" DUMMY_EXPORT void Read_Nvrt(Detector& detector, void* tls, void* pc,
+//                                        void* addr, size_t size) {
+//   detector.read(tls, pc, addr, size);
+// }

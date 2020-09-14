@@ -14,7 +14,7 @@
 #include "detector/Detector.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-
+// #include "func_def.h"
 #include <memory>
 
 class MockDetector : public drace::detector::Dummy {

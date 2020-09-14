@@ -59,7 +59,12 @@ extern std::unique_ptr<Detector> detector;
 // addr,
 //                           size_t size);
 
-extern decltype(Read_Nvrt) *Read_Nvrt_Ptr;
+// extern decltype(Read_Nvrt) *Read_Nvrt_Ptr;
+// extern void (*Write_Nvrt_Ptr)(void *, void *, void *, void *, size_t);
+
+// extern void (*FuncEnter_Nvrt_Ptr)(void *, void *, void *);
+// extern void (*FuncExit_Nvrt_Ptr)(void *, void *);
+
 }  // namespace drace
 
 // MSR Communication Driver

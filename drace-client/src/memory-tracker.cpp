@@ -9,7 +9,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include "globals.h"
+#include "globals.h" 
+#include "func_def.h"
 
 #include <dr_api.h>
 #include <dr_tools.h>
@@ -195,18 +196,25 @@ void MemoryTracker::analyze_access(ShadowThreadState &data) {
         }
 
         if (mem_ref->write) {
-          detector->write(
-              data.detector_data, reinterpret_cast<void *>(mem_ref->pc),
-              reinterpret_cast<void *>(mem_ref->addr), mem_ref->size);
-          // printf("[%i] WRITE %p, PC: %p\n", data.tid, mem_ref->addr,
-          // mem_ref->pc);
+          if (Write_Nvrt_Ptr) {  // TODO: maybe remove an if
+            Write_Nvrt_Ptr((void *)detector.get(), data.detector_data,
+                           reinterpret_cast<void *>(mem_ref->pc),
+                           reinterpret_cast<void *>(mem_ref->addr),
+                           mem_ref->size);
+          } else {
+            detector->write(
+                data.detector_data, reinterpret_cast<void *>(mem_ref->pc),
+                reinterpret_cast<void *>(mem_ref->addr), mem_ref->size);
+            // printf("[%i] WRITE %p, PC: %p\n", data.tid, mem_ref->addr,
+            // mem_ref->pc);
+          }
         } else {
-          if(Read_Nvrt_Ptr){
-            Read_Nvrt_Ptr(*detector, data.detector_data,
+          if (Read_Nvrt_Ptr) {  // TODO: maybe remove an if
+            Read_Nvrt_Ptr((void *)detector.get(), data.detector_data,
                           reinterpret_cast<void *>(mem_ref->pc),
                           reinterpret_cast<void *>(mem_ref->addr),
                           mem_ref->size);
-          }else{
+          } else {
             detector->read(
                 data.detector_data, reinterpret_cast<void *>(mem_ref->pc),
                 reinterpret_cast<void *>(mem_ref->addr), mem_ref->size);
