@@ -11,7 +11,7 @@
  */
 
 #include "detector/Detector.h"
-
+#include "func_def.h"
 #include <array>
 
 namespace drace {
@@ -54,7 +54,13 @@ class ShadowStack {
    */
   inline void push(void* addr, void* det_data) {
     if (_entries >= max_size) return;
-    _detector->func_enter(det_data, addr);
+
+    if (FuncEnter_Nvrt_Ptr) {
+      FuncEnter_Nvrt_Ptr((void*)_detector, det_data, addr);
+    } else {
+      _detector->func_enter(det_data, addr);
+    }
+    // _detector->func_enter(det_data, addr);
     _data[_entries++] = addr;
   }
 
@@ -69,7 +75,13 @@ class ShadowStack {
 #endif
     --_entries;
 
-    _detector->func_exit(det_data);
+    // if (FuncExit_Nvrt_Ptr) {
+    //   FuncExit_Nvrt_Ptr((void*)_detector, det_data);
+    // } else {
+    //   _detector->func_exit(det_data);
+    // }
+      _detector->func_exit(det_data);
+
     return _data[_entries];
   }
 
@@ -80,5 +92,5 @@ class ShadowStack {
     // in C++11
     return max_size;
   }
-};
+};  // namespace drace
 }  // namespace drace

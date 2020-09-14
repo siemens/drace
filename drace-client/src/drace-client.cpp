@@ -30,6 +30,7 @@
 #include "drace-client.h"
 #include "function-wrapper.h"
 #include "globals.h"
+#include "func_def.h"
 #include "memory-tracker.h"
 #include "race-collector.h"
 #include "race-filter.h"
@@ -143,7 +144,6 @@ namespace drace {
 static void register_detector(int argc, const char **argv,
                               const std::string &detector_name) {
   decltype(CreateDetector) *create_detector = nullptr;
-  // decltype(Read_Nvrt) *Read_Nvrt_Ptr = nullptr;
   std::string detector_lib(::util::LibLoaderFactory::getModulePrefix() +
                            "drace.detector." + detector_name +
                            ::util::LibLoaderFactory::getModuleExtension());
@@ -162,6 +162,9 @@ static void register_detector(int argc, const char **argv,
     }
     create_detector = (*detector_loader)["CreateDetector"];
     Read_Nvrt_Ptr = (*detector_loader)["Read_Nvrt"];
+    Write_Nvrt_Ptr = (*detector_loader)["Write_Nvrt"];
+    FuncEnter_Nvrt_Ptr = (*detector_loader)["FuncEnter_Nvrt"];
+    FuncExit_Nvrt_Ptr = (*detector_loader)["FuncExit_Nvrt"];
   } else {
     // tsan is loaded during startup, hence symbol is available
     create_detector = CreateDetector;

@@ -137,7 +137,7 @@ class Fasttrack : public Detector {
     thr->get_stackDepot().InsertValue(tmp, thr->parent_ce);
   }
 
-  void func_exit(tls_t tls) final {
+  void  func_exit(tls_t tls) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
 
     // thr->get_stackDepot().pop_stack_element();

@@ -42,5 +42,8 @@ std::unique_ptr<ipc::SharedMemory<ipc::ClientCB, true>> extcb;
 
 std::unique_ptr<Detector> detector;
 
-decltype(Read_Nvrt) *Read_Nvrt_Ptr;
+decltype(Read_Nvrt) *Read_Nvrt_Ptr = nullptr;
+void (*Write_Nvrt_Ptr)(void *, void *, void *, void *, size_t) = nullptr;
+void (*FuncEnter_Nvrt_Ptr)(void *, void *, void *) = nullptr;
+void (*FuncExit_Nvrt_Ptr)(void *, void *) = nullptr;
 }  // namespace drace

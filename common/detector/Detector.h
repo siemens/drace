@@ -61,7 +61,7 @@ class Detector {
     size_t heap_block_size;
     uintptr_t accessed_memory;
     uintptr_t heap_block_begin;
-    uintptr_t stack_trace[max_stack_size]; //maybe make it a std::array
+    uintptr_t stack_trace[max_stack_size];  // maybe make it a std::array
   };
 
   /// A Data-Race is a tuple of two Accesses
@@ -215,5 +215,13 @@ class Detector {
 /// create a new detector instance
 extern "C" DETECTOR_EXPORT Detector* CreateDetector();
 
-extern "C" DETECTOR_EXPORT void Read_Nvrt(Detector& detector, void* tls,
-                                         void* pc, void* addr, size_t size);
+extern "C" DETECTOR_EXPORT void Read_Nvrt(void* detector, void* tls, void* pc,
+                                          void* addr, size_t size);
+
+extern "C" DETECTOR_EXPORT void Write_Nvrt(void* detector, void* tls, void* pc,
+                                           void* addr, size_t size);
+
+extern "C" DETECTOR_EXPORT void FuncEnter_Nvrt(void* detector, void* tls,
+                                                   void* pc);
+
+extern "C" DETECTOR_EXPORT void FuncExit_Nvrt(void* detector, void* tls);
