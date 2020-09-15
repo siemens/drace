@@ -75,12 +75,12 @@ class ShadowStack {
 #endif
     --_entries;
 
-    // if (FuncExit_Nvrt_Ptr) {
-    //   FuncExit_Nvrt_Ptr((void*)_detector, det_data);
-    // } else {
-    //   _detector->func_exit(det_data);
-    // }
+    if (FuncExit_Nvrt_Ptr) {
+      FuncExit_Nvrt_Ptr((void*)_detector, det_data);
+    } else {
       _detector->func_exit(det_data);
+    }
+      // _detector->func_exit(det_data);
 
     return _data[_entries];
   }
