@@ -50,7 +50,7 @@ TEST(FasttrackTest, Basic_StackTraceTrie) {
   ft->func_enter(tls[0], (void*)7);
 
   ThreadState* thr = reinterpret_cast<ThreadState*>(tls[0]);
-  std::list<size_t> list = thr->return_stack_trace(104);
+  auto list = thr->return_stack_trace(104);
   std::vector<size_t> vec(list.begin(), list.end());
 
   // TODO: should be modified.
@@ -114,11 +114,11 @@ TEST(FasttrackTest, Complex_StackTraceTrie) {
   ft->func_enter(tls[1], (void*)10);
 
   ThreadState* thr0 = reinterpret_cast<ThreadState*>(tls[0]);
-  std::list<size_t> list0 = thr0->return_stack_trace(104);
+  auto list0 = thr0->return_stack_trace(104);
   std::vector<size_t> vec0(list0.begin(), list0.end());
 
   ThreadState* thr1 = reinterpret_cast<ThreadState*>(tls[1]);
-  std::list<size_t> list1 = thr1->return_stack_trace(104);
+  auto list1 = thr1->return_stack_trace(104);
   std::vector<size_t> vec1(list1.begin(), list1.end());
 
   ASSERT_EQ(vec0.size(), 4);

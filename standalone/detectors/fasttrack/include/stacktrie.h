@@ -1,12 +1,15 @@
 #ifndef STACK_TRIE_HEADER_H
 #define STACK_TRIE_HEADER_H 1
 
+#include <deque>
+
 class StackTraceTrie {
   static constexpr int MAX_SIZE = 10;
 
   class TrieNode {
    public:
-    TrieNode* values[MAX_SIZE];
+    TrieNode* values[MAX_SIZE]; // maybe use std::array
+    // std::array<TrieNode*, MAX_SIZE> values;
     bool endOfAddress;
 
     virtual ~TrieNode() = default;
@@ -34,6 +37,9 @@ class StackTraceTrie {
     return newNode;
   }
 
+  // maybe I will need it in the future
+  void RemoveValue(std::string& _addr) {}
+
  public:
   StackTraceTrie() { _root = NewNode(); }
 
@@ -43,7 +49,7 @@ class StackTraceTrie {
     int index = -1;
     LastTrieNode* _lastTrieNode;
 
-    while (_addr != 0){
+    while (_addr != 0) {
       index = _addr % 10;
       if (!iter->values[index]) {
         iter->values[index] = NewNode();
@@ -61,45 +67,6 @@ class StackTraceTrie {
     delete iter;
   }
 
-  void MultiThreadedInsert(std::string& _addr, size_t parent_pc) {
-  //TODO: Reader lock
-    TrieNode* iter = _root;
-    int index = -1;
-
-    for (int i = 0; i < _addr.length(); ++i) {
-      index = _addr[i] - 48;
-      if (!iter->values[index]) { // need to modify actual element => lock
-        Insert(iter, _addr, i, parent_pc);
-        return;
-      }
-      iter = iter->values[index];
-    }
-  }
-
-  mutable ipc::spinlock _read_write_lock;
-  void Insert(TrieNode* iter, std::string& _addr, int i, size_t parent_pc) {
-    // TODO: Writer lock; Search & MakeTrace also Reader Lock
-    std::lock_guard<ipc::spinlock> lg(_read_write_lock);
-    LastTrieNode* _lastTrieNode;
-    TrieNode* last = nullptr;
-    int index = -1;
-    for (; i < _addr.length(); ++i) {
-      index = _addr[i] - 48;
-      iter->values[index] = NewNode();
-
-      last = iter;
-      iter = iter->values[index];
-    }
-    iter->endOfAddress = true;
-    _lastTrieNode = new LastTrieNode(*iter, parent_pc);
-    last->values[index] = _lastTrieNode;
-    delete iter;
-  }
-
-
-  // maybe I will need it in the future
-  void RemoveValue(std::string& _addr) {}
-
   bool SearchValue(size_t _addr) {
     TrieNode* iter = _root;
     int index = -1;
@@ -115,8 +82,8 @@ class StackTraceTrie {
     return (iter != nullptr && iter->endOfAddress);
   }
 
-  std::list<size_t> MakeTrace(const std::pair<size_t, size_t>& data) const {
-    std::list<size_t> this_stack; //maybe use a std::deque, much better than a list
+  std::deque<size_t> MakeTrace(const std::pair<size_t, size_t>& data) const {
+    std::deque<size_t> this_stack;
     this_stack.emplace_front(data.first);
 
     size_t parent = data.second;
@@ -138,7 +105,47 @@ class StackTraceTrie {
       LastTrieNode* _lastTrieNode = dynamic_cast<LastTrieNode*>(iter);
       parent = _lastTrieNode->parent_pc;
     } while (parent != 0);
-    return std::move(this_stack); // avoid unnecessary copy
+    return std::move(this_stack);  // avoid unnecessary copy
+  }
+
+
+/*---------------------------------------------------------------------
+Functions defined for multithreading so what can be done to be done on 
+more threads
+---------------------------------------------------------------------*/
+  mutable ipc::spinlock _read_write_lock;  // Reader-Writer lock
+  void MultiThreadedInsert(std::string& _addr, size_t parent_pc) {
+    // TODO: Reader lock
+    TrieNode* iter = _root;
+    int index = -1;
+
+    for (int i = 0; i < _addr.length(); ++i) {
+      index = _addr[i] - 48;
+      if (!iter->values[index]) {  // need to modify actual element => lock
+        Insert(iter, _addr, i, parent_pc);
+        return;
+      }
+      iter = iter->values[index];
+    }
+  }
+
+  void Insert(TrieNode* iter, std::string& _addr, int i, size_t parent_pc) {
+    // TODO: Writer lock; Search & MakeTrace also Reader Lock
+    std::lock_guard<ipc::spinlock> lg(_read_write_lock);
+    LastTrieNode* _lastTrieNode;
+    TrieNode* last = nullptr;
+    int index = -1;
+    for (; i < _addr.length(); ++i) {
+      index = _addr[i] - 48;
+      iter->values[index] = NewNode();
+
+      last = iter;
+      iter = iter->values[index];
+    }
+    iter->endOfAddress = true;
+    _lastTrieNode = new LastTrieNode(*iter, parent_pc);
+    last->values[index] = _lastTrieNode;
+    delete iter;
   }
 };
 

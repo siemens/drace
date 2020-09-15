@@ -125,7 +125,6 @@ class Fasttrack : public Detector {
   void func_enter(tls_t tls, void* pc) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
 
-    // thr->get_stackDepot().push_stack_element(reinterpret_cast<size_t>(pc));
     size_t funcs_size = thr->funcs.size();
     if (funcs_size == 0) {
       thr->parent_ce = 0;
@@ -139,8 +138,6 @@ class Fasttrack : public Detector {
 
   void func_exit(tls_t tls) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-
-    // thr->get_stackDepot().pop_stack_element();
 
     thr->funcs.pop_back();
     size_t funcs_size = thr->funcs.size();
@@ -422,7 +419,9 @@ class Fasttrack : public Detector {
   using phmap_parallel_node_hash_map_no_lock = phmap::parallel_node_hash_map<
       K, V, phmap::container_internal::hash_default_hash<K>,
       phmap::container_internal::hash_default_eq<K>,
-      std::allocator<std::pair<const K, V>>, 5,
+      std::allocator<std::pair<const K, V>>,
+      5,  // by modifying this number here we modify the number of internal
+          // locks of the HashMap
       ipc::spinlock>;  // phmap::NullMutex
   phmap_parallel_node_hash_map_no_lock<size_t, VarState> vars;
 
@@ -462,12 +461,10 @@ class Fasttrack : public Detector {
         it2 == it_end) {  // if thread_id is, because of finishing, not in
       return;             // stacktraces anymore, return
     }
-    // std::list<size_t> stack1(
-    //    std::move(it->second->get_stackDepot().return_stack_trace(address)));
-    // std::list<size_t> stack2(
-    //    std::move(it2->second->get_stackDepot().return_stack_trace(address)));
-    std::list<size_t> stack1{1, 2, 3, 4, 5};
-    std::list<size_t> stack2{4, 5, 6, 7, 8};
+    std::deque<size_t> stack1(
+        std::move(it->second->return_stack_trace(address)));
+    std::deque<size_t> stack2(
+        std::move(it2->second->return_stack_trace(address)));
 
     while (stack1.size() > Detector::max_stack_size) {
       stack1.pop_front();

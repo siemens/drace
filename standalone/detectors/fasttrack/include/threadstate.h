@@ -73,13 +73,15 @@ class ThreadState : public VectorClock<> {
     //TODO: put an assertion
     auto it = _read_write.find(addr);
     if (it == _read_write.end()) {
+      //TODO: temporary, remove it -> funcs will never be empty
+      
       _read_write.insert({addr, {pc, funcs.back()}}); //TODO: maybe use std::move avoid copy on pair
     } else {
       it->second = {pc, funcs.back()};
     }
   }
 
-  std::list<size_t> return_stack_trace(size_t address) const {
+  std::deque<size_t> return_stack_trace(size_t address) const {
     std::lock_guard<ipc::spinlock> lg(_read_write_lock);
     auto it = _read_write.find(address);
     if (it != _read_write.end()) {
