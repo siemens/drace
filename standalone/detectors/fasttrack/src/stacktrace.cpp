@@ -11,9 +11,9 @@
 
 #include "stacktrace.h"
 
-std::list<size_t> StackTrace::make_trace(
+std::deque<size_t> StackTrace::make_trace(
     const std::pair<size_t, StackTree::vertex_descriptor>& data) const {
-  std::list<size_t> this_stack;
+  std::deque<size_t> this_stack;
 
   StackTree::vertex_descriptor act_item = data.second;
 
@@ -110,7 +110,7 @@ void StackTrace::set_read_write(size_t addr, size_t pc) {
 }
 
 /// returns a stack trace of a clock for handing it over to drace
-std::list<size_t> StackTrace::return_stack_trace(size_t address) const {
+std::deque<size_t> StackTrace::return_stack_trace(size_t address) const {
   std::lock_guard<ipc::spinlock> lg(lock);
   auto it = _read_write.find(address);
   if (it != _read_write.end()) {

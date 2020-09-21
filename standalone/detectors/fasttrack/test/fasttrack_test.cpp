@@ -38,7 +38,7 @@ TEST(FasttrackTest, basic_stacktrace) {
   st.set_read_write(104, 1004);
   st.push_stack_element(7);
 
-  std::list<size_t> list = st.return_stack_trace(104);
+  auto list = st.return_stack_trace(104);
   std::vector<size_t> vec(list.begin(), list.end());
 
   ASSERT_EQ(vec[0], 1);
@@ -60,7 +60,7 @@ TEST(FasttrackTest, ItemNotFoundInTrace) {
 
 TEST(FasttrackTest, stackInitializations) {
   std::vector<std::shared_ptr<StackTrace>> vec;
-  std::list<size_t> stack;
+  std::deque<size_t> stack;
   for (int i = 0; i < 100; ++i) {
     vec.push_back(std::make_shared<StackTrace>());
   }

@@ -56,6 +56,6 @@ class ThreadState : public VectorClock<> {
   inline void delete_vector() { vc.clear(); }
 
   /// return stackDepot of this thread
-  StackTrace& get_stackDepot() { return traceDepot; }
+  StackTrace& GetStackDepot() { return traceDepot; }
 };
 #endif  // !THREADSTATE_H

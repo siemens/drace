@@ -14,7 +14,7 @@
 #include <ipc/spinlock.h>
 #include <parallel_hashmap/phmap.h>
 #include <boost/graph/adjacency_list.hpp>
-#include <list>
+#include <deque>
 
 /**
  * \brief Implements a stack depot capable to store callstacks
@@ -50,7 +50,7 @@ class StackTrace {
   mutable ipc::spinlock lock;
 
   /// re-construct a stack-trace from a bottom node to the root
-  std::list<size_t> make_trace(
+  std::deque<size_t> make_trace(
       const std::pair<size_t, StackTree::vertex_descriptor>& data) const;
 
   /**
@@ -86,6 +86,6 @@ class StackTrace {
    * \brief returns a stack trace of a clock for handing it over to drace
    * \note threadsafe
    */
-  std::list<size_t> return_stack_trace(size_t address) const;
+  std::deque<size_t> return_stack_trace(size_t address) const;
 };
 #endif
