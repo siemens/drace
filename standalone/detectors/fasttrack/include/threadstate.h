@@ -13,10 +13,12 @@
 
 #include <atomic>
 #include <memory>
-#include "stacktrace.h"
-#include "stacktrie.h"
 #include "vectorclock.h"
 #include "xvector.h"
+
+#include "PrefixTree_StackDepot.h"
+#include "stacktrace.h"
+#include "stacktrie.h"
 
 /// implements a threadstate, holds the thread's vectorclock and the thread's id
 /// (tid and act clock)
@@ -25,19 +27,12 @@ class ThreadState : public VectorClock<> {
   /// holds the tid and the actual clock value -> lower 21 bits are clock and 11
   /// bits are TID
   VectorClock<>::VC_ID id;
-  StackTraceTrie traceDepot;
+  TrieStackDepot traceDepot;
   VectorClock<>::TID m_own_tid;
 
-  phmap::flat_hash_map<size_t, std::pair<size_t, size_t>> _read_write;
-  mutable ipc::spinlock _read_write_lock;
+  phmap::flat_hash_map<size_t, std::pair<size_t, TrieNode*>> _read_write;
 
  public:
-  /// current stack element can be obtained by calling funcs.back()
-  std::vector<size_t> funcs;
-
-  /// parent of the current stack element
-  size_t parent_ce = 0;
-
   /// constructor of ThreadState object, initializes tid and clock
   /// copies the vector of parent thread, if a parent thread exists
   ThreadState(VectorClock::TID own_tid,
@@ -66,18 +61,17 @@ class ThreadState : public VectorClock<> {
   inline void delete_vector() { vc.clear(); }
 
   /// return stackDepot of this thread
-  StackTraceTrie& get_stackDepot() { return traceDepot; }
+  TrieStackDepot& getStackDepot() { return traceDepot; }
 
+  mutable ipc::spinlock _read_write_lock;
   inline void set_read_write(size_t addr, size_t pc) {
     std::lock_guard<ipc::spinlock> lg(_read_write_lock);
-    //TODO: put an assertion
     auto it = _read_write.find(addr);
     if (it == _read_write.end()) {
-      //TODO: temporary, remove it -> funcs will never be empty
-      
-      _read_write.insert({addr, {pc, funcs.back()}}); //TODO: maybe use std::move avoid copy on pair
+      // TODO: maybe use std::move avoid copy on pair
+      _read_write.insert({addr, {pc, traceDepot.GetCurrentElement()}});
     } else {
-      it->second = {pc, funcs.back()};
+      it->second = {pc, traceDepot.GetCurrentElement()};
     }
   }
 
@@ -85,7 +79,7 @@ class ThreadState : public VectorClock<> {
     std::lock_guard<ipc::spinlock> lg(_read_write_lock);
     auto it = _read_write.find(address);
     if (it != _read_write.end()) {
-      auto data = it->second;
+      auto data = it->second; //copying no reference to element in the HashMap
       return traceDepot.MakeTrace(data);
     }
     // A read/write operation was not tracked correctly => return empty

@@ -59,6 +59,75 @@ class Fasttrack : public Detector {
 
   explicit Fasttrack() = default;
 
+ private:
+  /// holds the callback address to report a race to the drace-main
+  Callback clb;
+
+  /// central lock, used for accesses to global tables excepst vars (order: 1)
+  LockT g_lock;
+
+  /*---------------------------------------------------------------------
+   Variables to be defined via an external framework
+  ---------------------------------------------------------------------*/
+  /// switch logging of read/write operations
+  bool log_flag = true;
+  bool final_output = (true && log_flag);
+
+#define DELETE_POLICY false
+  bool _flag_removeUselessVarStates = (true && DELETE_POLICY);
+  bool _flag_removeDropSubMaps = (false && DELETE_POLICY);
+  bool _flag_removeRandomVarStates = (true && DELETE_POLICY);
+  bool _flag_removeLowestClockVarStates = (false && DELETE_POLICY);
+  std::size_t vars_size = 50000;  // TODO: optimal threshold
+
+  /// these maps hold the various state objects together with the identifiers
+  phmap::parallel_flat_hash_map<size_t, size_t> allocs;
+
+  // shared_vcs maps addr to the status of read_shared. we use node, because
+  // while an address has a pointer, another one may add to the HashMap,
+  // as the locks are on address => we might invalidate our pointers from
+  // another adress
+  template <class K, class V>
+  using phmap_parallel_node_hash_map = phmap::parallel_node_hash_map<
+      K, V, phmap::container_internal::hash_default_hash<K>,
+      phmap::container_internal::hash_default_eq<K>,
+      std::allocator<std::pair<const K, V>>, 4, ipc::spinlock>;
+  phmap_parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_ID>>
+      shared_vcs;
+
+  // we have to use a node hash map here, as we access it from multiple
+  // threads => the HashMap might grow in the meantime => we would
+  // invalidate our pointers unless we use a node map
+  template <class K, class V>
+  using phmap_parallel_node_hash_map_no_lock = phmap::parallel_node_hash_map<
+      K, V, phmap::container_internal::hash_default_hash<K>,
+      phmap::container_internal::hash_default_eq<K>,
+      std::allocator<std::pair<const K, V>>,
+      5,  // by modifying this number here we modify the number of internal
+          // locks of the HashMap
+      ipc::spinlock>;  // phmap::NullMutex
+  phmap_parallel_node_hash_map_no_lock<size_t, VarState> vars;
+
+  // number of locks, threads is expected to be < 1000, hence use one map
+  // (without submaps)
+  phmap::flat_hash_map<void*, VectorClock<>> locks;
+  phmap::flat_hash_map<tid_ft, ts_ptr> threads;
+  phmap::parallel_flat_hash_map<void*, VectorClock<>> happens_states;
+
+  /// pool of spinlocks used to synchronize threads when accessing vars HashMap
+  /// based on the addr that they need from the Map
+  std::array<ipc::spinlock, 1024> spinlocks;
+
+  // used in removeUselessVarStates to skip the run through the HashMap unless
+  // the last_min_th_clock modified from the last check
+  VectorClock<>::Clock _last_min_th_clock = -1;
+
+  static constexpr unsigned long long _addr_mask = 0x3FFull;
+  constexpr std::size_t hashOf(std::size_t addr) const {
+    return (addr >> 4) & _addr_mask;
+  }
+
+ public:
   bool init(int argc, const char** argv, Callback rc_clb) {
     parse_args(argc, argv);
     clb = rc_clb;  // init callback
@@ -70,7 +139,7 @@ class Fasttrack : public Detector {
   void read(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
     thr->set_read_write((size_t)addr, reinterpret_cast<size_t>(pc));
-
+    // std::cout << "threads.size()= " << threads.size() << std::endl;
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((size_t)addr)]);
 #if DELETE_POLICY
@@ -87,7 +156,8 @@ class Fasttrack : public Detector {
 #if MAKE_OUTPUT
         std::cout << "variable is read before written" << std::endl;  // warning
 #endif
-        it = create_var((size_t)addr);
+        it = create_var(
+            (size_t)addr);  // USE emplace.hint to avoid the extra look-up
       }
 #if PROF_INFO
       PROF_END_BLOCK
@@ -113,7 +183,7 @@ class Fasttrack : public Detector {
       // finds the VarState instance of a specific addr or creates it
       auto it = vars.find((size_t)addr);
       if (it == vars.end()) {
-        it = create_var((size_t)addr);
+        it = create_var((size_t)addr);  // USE emplace.hint to avoid the extra look-up
       }
 #if PROF_INFO
       PROF_END_BLOCK
@@ -124,28 +194,12 @@ class Fasttrack : public Detector {
 
   void func_enter(tls_t tls, void* pc) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-
-    size_t funcs_size = thr->funcs.size();
-    if (funcs_size == 0) {
-      thr->parent_ce = 0;
-    } else {
-      thr->parent_ce = thr->funcs.back();
-    }
-    size_t tmp = reinterpret_cast<size_t>(pc);
-    thr->funcs.emplace_back(tmp);
-    thr->get_stackDepot().InsertValue(tmp, thr->parent_ce);
+    thr->getStackDepot().InsertFunction(reinterpret_cast<size_t>(pc));
   }
 
   void func_exit(tls_t tls) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-
-    thr->funcs.pop_back();
-    size_t funcs_size = thr->funcs.size();
-    if (funcs_size == 1) {
-      thr->parent_ce = 0;
-      return;
-    }
-    thr->parent_ce = thr->funcs[thr->funcs.size() - 2];
+    thr->getStackDepot().ExitFunction();
   }
 
   void fork(tid_t parent, tid_t child, tls_t* tls) final {
@@ -304,6 +358,7 @@ class Fasttrack : public Detector {
   }
 
   void finish(tls_t tls, tid_t thread_id) final {
+    std::cout << "thread finished" << std::endl;
 #if PROF_INFO
     PROF_FUNCTION();
 #endif
@@ -348,102 +403,7 @@ class Fasttrack : public Detector {
 
   const char* version() final { return "0.0.1"; }
 
-  // protected:  // the log counters are public for testing
-  /// statistics
-  struct log_counters {
-    uint32_t read_ex_same_epoch = 0;
-    uint32_t read_sh_same_epoch = 0;
-    uint32_t read_shared = 0;
-    uint32_t read_exclusive = 0;
-    uint32_t read_share = 0;
-    uint32_t write_same_epoch = 0;
-    uint32_t write_exclusive = 0;
-    uint32_t write_shared = 0;
-    uint32_t wr_race = 0;
-    uint32_t rw_sh_race = 0;
-    uint32_t ww_race = 0;
-    uint32_t rw_ex_race = 0;
-    uint32_t removeUselessVarStates_calls = 0;
-    uint32_t removeRandomVarStates_calls = 0;
-    uint32_t removeVarStates_calls = 0;
-    uint32_t no_Useful_VarStates_removed = 0;
-    uint32_t no_Useless_VarStates_removed = 0;
-    uint32_t no_Random_VarStates_removed = 0;
-    uint32_t no_allocatedVarStates = 0;
-    uint32_t dropSubMap_calls = 0;
-    uint32_t no_VarStates_Of_Thread_removed = 0;
-  } log_count;
-
  private:
-  /// holds the callback address to report a race to the drace-main
-  Callback clb;
-
-  /// central lock, used for accesses to global tables except vars (order: 1)
-  LockT g_lock;
-
-  /*
----------------------------------------------------------------------
- Variables to be defined via an external framework
----------------------------------------------------------------------
-*/
-  /// switch logging of read/write operations
-  bool log_flag = true;
-  bool final_output = (true && log_flag);
-
-#define DELETE_POLICY false
-  bool _flag_removeUselessVarStates = (true && DELETE_POLICY);
-  bool _flag_removeDropSubMaps = (false && DELETE_POLICY);
-  bool _flag_removeRandomVarStates = (true && DELETE_POLICY);
-  bool _flag_removeLowestClockVarStates = (false && DELETE_POLICY);
-  std::size_t vars_size = 50000;  // TODO: optimal threshold
-
-  /// these maps hold the various state objects together with the identifiers
-  phmap::parallel_flat_hash_map<size_t, size_t> allocs;
-
-  // shared_vcs maps addr to the status of read_shared. we use node, because
-  // while an address has a pointer, another one may add to the HashMap,
-  // as the locks are on address => we might invalidate our pointers from
-  // another adress
-  template <class K, class V>
-  using phmap_parallel_node_hash_map = phmap::parallel_node_hash_map<
-      K, V, phmap::container_internal::hash_default_hash<K>,
-      phmap::container_internal::hash_default_eq<K>,
-      std::allocator<std::pair<const K, V>>, 4, ipc::spinlock>;
-  phmap_parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_ID>>
-      shared_vcs;
-
-  // we have to use a node hash map here, as we access it from multiple
-  // threads => the HashMap might grow in the meantime => we would
-  // invalidate our pointers unless we use a node map
-  template <class K, class V>
-  using phmap_parallel_node_hash_map_no_lock = phmap::parallel_node_hash_map<
-      K, V, phmap::container_internal::hash_default_hash<K>,
-      phmap::container_internal::hash_default_eq<K>,
-      std::allocator<std::pair<const K, V>>,
-      5,  // by modifying this number here we modify the number of internal
-          // locks of the HashMap
-      ipc::spinlock>;  // phmap::NullMutex
-  phmap_parallel_node_hash_map_no_lock<size_t, VarState> vars;
-
-  // number of locks, threads is expected to be < 1000, hence use one map
-  // (without submaps)
-  phmap::flat_hash_map<void*, VectorClock<>> locks;
-  phmap::flat_hash_map<tid_ft, ts_ptr> threads;
-  phmap::parallel_flat_hash_map<void*, VectorClock<>> happens_states;
-
-  /// pool of spinlocks used to synchronize threads when accessing vars HashMap
-  /// based on the addr that they need from the Map
-  std::array<ipc::spinlock, 1024> spinlocks;
-
-  // used in removeUselessVarStates to skip the run through the HashMap unless
-  // the last_min_th_clock modified from the last check
-  VectorClock<>::Clock _last_min_th_clock = -1;
-
-  static constexpr unsigned long long _addr_mask = 0x3FFull;
-  constexpr std::size_t hashOf(std::size_t addr) const {
-    return (addr >> 4) & _addr_mask;
-  }
-
   /**
    * \brief report a data-race back to DRace
    * \note the function itself must not use locks
@@ -969,6 +929,33 @@ class Fasttrack : public Detector {
       }
     }
   }
+
+ public:
+  // protected:  // the log counters are public for testing
+  /// statistics
+  struct log_counters {
+    uint32_t read_ex_same_epoch = 0;
+    uint32_t read_sh_same_epoch = 0;
+    uint32_t read_shared = 0;
+    uint32_t read_exclusive = 0;
+    uint32_t read_share = 0;
+    uint32_t write_same_epoch = 0;
+    uint32_t write_exclusive = 0;
+    uint32_t write_shared = 0;
+    uint32_t wr_race = 0;
+    uint32_t rw_sh_race = 0;
+    uint32_t ww_race = 0;
+    uint32_t rw_ex_race = 0;
+    uint32_t removeUselessVarStates_calls = 0;
+    uint32_t removeRandomVarStates_calls = 0;
+    uint32_t removeVarStates_calls = 0;
+    uint32_t no_Useful_VarStates_removed = 0;
+    uint32_t no_Useless_VarStates_removed = 0;
+    uint32_t no_Random_VarStates_removed = 0;
+    uint32_t no_allocatedVarStates = 0;
+    uint32_t dropSubMap_calls = 0;
+    uint32_t no_VarStates_Of_Thread_removed = 0;
+  } log_count;
 
   /// print statistics about rule-hits
   void process_log_output() const {

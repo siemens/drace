@@ -20,7 +20,7 @@
 
 using ::testing::UnitTest;
 
-TEST(FasttrackTest, Basic_StackTraceTrie) {
+TEST(FasttrackTest, BasicStackTrace) {
   using namespace drace::detector;
   auto ft = std::make_unique<Fasttrack<std::mutex>>();
 
@@ -53,7 +53,6 @@ TEST(FasttrackTest, Basic_StackTraceTrie) {
   auto list = thr->return_stack_trace(104);
   std::vector<size_t> vec(list.begin(), list.end());
 
-  // TODO: should be modified.
   ASSERT_EQ(vec[0], 1);
   ASSERT_EQ(vec[1], 2);
   ASSERT_EQ(vec[2], 1);
@@ -63,24 +62,7 @@ TEST(FasttrackTest, Basic_StackTraceTrie) {
   ASSERT_EQ(vec.size(), 6);
 }
 
-TEST(FasttrackTest, ItemNotFoundInTrace) {
-  StackTrace st;
-  st.push_stack_element(42);
-  // lookup element 40, which is not in the trace
-  auto list = st.return_stack_trace(40);
-  ASSERT_EQ(list.size(), 0);
-}
-
-TEST(FasttrackTest, ItemNotFoundInTrie) {
-  // void* tls[1];  // storage for TLS data
-  ThreadState* thr0 = new ThreadState(220);
-  thr0->get_stackDepot().InsertValue(42, 1);
-  bool f0 = thr0->get_stackDepot().SearchValue(104);
-
-  ASSERT_EQ(f0, 0);
-}
-
-TEST(FasttrackTest, Complex_StackTraceTrie) {
+TEST(FasttrackTest, ComplexStackTrace) {
   using namespace drace::detector;
   auto ft = std::make_unique<Fasttrack<std::mutex>>();
 
@@ -132,6 +114,80 @@ TEST(FasttrackTest, Complex_StackTraceTrie) {
   ASSERT_EQ(vec1[2], 6);
   ASSERT_EQ(vec1[3], 8);
   ASSERT_EQ(vec1[4], 1004);
+}
+
+TEST(FasttrackTest, BetterComplexStackTrace) {
+  using namespace drace::detector;
+  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+
+  auto rc_clb = [](const Detector::Race* r) {};
+  const char* argv_mock[] = {"ft_test"};
+  void* tls[2];  // storage for TLS data
+
+  ft->init(1, argv_mock, rc_clb);
+  ft->fork(0, 1, &tls[0]);  // t0
+  ft->fork(0, 2, &tls[1]);  // t1
+
+  ft->func_enter(tls[0], (void*)0x1ull);
+  ft->func_enter(tls[0], (void*)0x2ull);
+  ft->func_enter(tls[0], (void*)0x6ull);
+  ft->func_enter(tls[0], (void*)0x3ull);
+  ft->func_enter(tls[0], (void*)0x2ull);
+  ft->func_exit(tls[0]);
+  ft->func_enter(tls[0], (void*)0x6ull);
+  ft->func_exit(tls[0]);
+  ft->func_enter(tls[0], (void*)0x2ull);
+  ft->func_enter(tls[0], (void*)0x7ull);
+  ft->read(tls[0], (void*)0x1001ull, (void*)0x101ull, 8);
+  ft->func_exit(tls[0]);
+  ft->func_exit(tls[0]);
+  ft->func_exit(tls[0]);
+  // ft->func_exit(tls[0]);
+  ft->func_enter(tls[0], (void*)0x2ull);
+  ft->func_enter(tls[0], (void*)0x6ull);
+  ft->read(tls[0], (void*)0x1002ull, (void*)0x102ull, 8);
+  ft->func_enter(tls[0], (void*)0x3ull);
+  ft->func_enter(tls[0], (void*)0x2ull);
+  ft->func_enter(tls[0], (void*)0x6ull);
+  ft->func_enter(tls[0], (void*)0x3ull);
+  ft->read(tls[0], (void*)0x1003ull, (void*)0x103ull, 8);
+
+  ThreadState* thr0 = reinterpret_cast<ThreadState*>(tls[0]);
+  auto trace_101 = thr0->return_stack_trace(0x101ull);
+  std::vector<size_t> vec_101(trace_101.begin(), trace_101.end());
+
+  auto trace_102 = thr0->return_stack_trace(0x102ull);
+  std::vector<size_t> vec_102(trace_102.begin(), trace_102.end());
+
+  auto trace_103 = thr0->return_stack_trace(0x103ull);
+  std::vector<size_t> vec_103(trace_103.begin(), trace_103.end());
+
+  ASSERT_EQ(vec_101.size(), 7);
+  ASSERT_EQ(vec_101[0], 0x1ull);
+  ASSERT_EQ(vec_101[1], 0x2ull);
+  ASSERT_EQ(vec_101[2], 0x6ull);
+  ASSERT_EQ(vec_101[3], 0x3ull);
+  ASSERT_EQ(vec_101[4], 0x2ull);
+  ASSERT_EQ(vec_101[5], 0x7ull);
+  ASSERT_EQ(vec_101[6], 0x1001ull);
+  ASSERT_EQ(vec_102.size(), 6);
+  ASSERT_EQ(vec_102[0], 0x1ull);
+  ASSERT_EQ(vec_102[1], 0x2ull);
+  ASSERT_EQ(vec_102[2], 0x6ull);
+  ASSERT_EQ(vec_102[3], 0x2ull);
+  ASSERT_EQ(vec_102[4], 0x6ull);
+  ASSERT_EQ(vec_102[5], 0x1002ull);
+  ASSERT_EQ(vec_103.size(), 10);
+  ASSERT_EQ(vec_103[0], 0x1ull);
+  ASSERT_EQ(vec_103[1], 0x2ull);
+  ASSERT_EQ(vec_103[2], 0x6ull);
+  ASSERT_EQ(vec_103[3], 0x2ull);
+  ASSERT_EQ(vec_103[4], 0x6ull);
+  ASSERT_EQ(vec_103[5], 0x3ull);
+  ASSERT_EQ(vec_103[6], 0x2ull);
+  ASSERT_EQ(vec_103[7], 0x6ull);
+  ASSERT_EQ(vec_103[8], 0x3ull);
+  ASSERT_EQ(vec_103[9], 0x1003ull);
 }
 
 TEST(FasttrackTest, stackInitializations) {
@@ -447,6 +503,73 @@ TEST(FasttrackTest, FullFtSimpleRace) {
   ft->write(tls[0], (void*)0x1ull, (void*)0x42ull, 1);
   ft->func_enter(tls[1], (void*)0x2ull);
   ft->write(tls[1], (void*)0x3ull, (void*)0x42ull, 1);
+  // here, we expect the race. Handled in callback
+  ft->finalize();
+}
+
+TEST(FasttrackTest, RaceAndStackTrace) {
+  using namespace drace::detector;
+
+  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto rc_clb = [](const Detector::Race* r) {
+    ASSERT_EQ(r->first.stack_size, 7);
+    ASSERT_EQ(r->second.stack_size, 6);
+    // first stack
+    EXPECT_EQ(r->first.stack_trace[0], 0x1ull);
+    EXPECT_EQ(r->first.stack_trace[1], 0x2ull);
+    EXPECT_EQ(r->first.stack_trace[2], 0x6ull);
+    EXPECT_EQ(r->first.stack_trace[3], 0x3ull);
+    EXPECT_EQ(r->first.stack_trace[4], 0x2ull);
+    EXPECT_EQ(r->first.stack_trace[5], 0x8ull);
+    EXPECT_EQ(r->first.stack_trace[6], 0x1006ull);
+    // second stack
+    EXPECT_EQ(r->second.stack_trace[0], 0x1ull);
+    EXPECT_EQ(r->second.stack_trace[1], 0x20ull);
+    EXPECT_EQ(r->second.stack_trace[2], 0x60ull);
+    EXPECT_EQ(r->second.stack_trace[3], 0x30ull);
+    EXPECT_EQ(r->second.stack_trace[4], 0x60ull);
+    EXPECT_EQ(r->second.stack_trace[5], 0x1007ull);
+  };
+  const char* argv_mock[] = {"ft_test"};
+  void* tls[2];  // storage for TLS data
+
+  ft->init(1, argv_mock, rc_clb);
+
+  ft->fork(0, 1, &tls[0]);
+  ft->fork(0, 2, &tls[1]);
+
+  ft->func_enter(tls[0], (void*)0x1ull);
+  ft->func_enter(tls[0], (void*)0x2ull);
+  ft->func_enter(tls[0], (void*)0x6ull);
+  ft->func_enter(tls[0], (void*)0x3ull);
+  ft->func_enter(tls[0], (void*)0x6ull);
+  ft->func_exit(tls[0]);
+  ft->func_enter(tls[0], (void*)0x2ull);
+  ft->func_enter(tls[0], (void*)0x8ull);
+  ft->write(tls[0], (void*)0x1006ull, (void*)0x100ull, 8);
+  ft->func_exit(tls[0]);
+  ft->func_exit(tls[0]);
+  ft->func_exit(tls[0]);
+  ft->func_enter(tls[0], (void*)0x4ull);
+  ft->func_enter(tls[0], (void*)0x2ull);
+  ft->func_enter(tls[0], (void*)0x7ull);
+
+  ft->func_enter(tls[1], (void*)0x1ull);
+  ft->func_enter(tls[1], (void*)0x20ull);
+  ft->func_enter(tls[1], (void*)0x60ull);
+  ft->func_enter(tls[1], (void*)0x30ull);
+  ft->func_enter(tls[1], (void*)0x60ull);
+  ft->write(tls[1], (void*)0x1007ull, (void*)0x100ull, 8);
+  ft->func_exit(tls[1]);
+  ft->func_enter(tls[1], (void*)0x20ull);
+  ft->func_enter(tls[1], (void*)0x80ull);
+  ft->func_exit(tls[1]);
+  ft->func_exit(tls[1]);
+  ft->func_exit(tls[1]);
+  ft->func_exit(tls[1]);
+  ft->func_enter(tls[1], (void*)0x40ull);
+  ft->func_enter(tls[1], (void*)0x20ull);
+  ft->func_enter(tls[1], (void*)0x70ull);
   // here, we expect the race. Handled in callback
   ft->finalize();
   __debugbreak();
