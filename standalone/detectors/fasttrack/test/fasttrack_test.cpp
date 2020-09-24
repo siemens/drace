@@ -9,8 +9,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <fasttrack.h>
 #include "fasttrack_test.h"
+#include <fasttrack.h>
 
 #include <random>
 #include "gtest/gtest.h"
@@ -52,6 +52,8 @@ TEST(FasttrackTest, BasicStackTrace) {
   ThreadState* thr = reinterpret_cast<ThreadState*>(tls[0]);
   auto list = thr->return_stack_trace(104);
   std::vector<size_t> vec(list.begin(), list.end());
+
+  ft->finish(tls[0], 1);
 
   ASSERT_EQ(vec[0], 1);
   ASSERT_EQ(vec[1], 2);
@@ -102,6 +104,9 @@ TEST(FasttrackTest, ComplexStackTrace) {
   ThreadState* thr1 = reinterpret_cast<ThreadState*>(tls[1]);
   auto list1 = thr1->return_stack_trace(104);
   std::vector<size_t> vec1(list1.begin(), list1.end());
+
+  ft->finish(tls[0], 1);
+  ft->finish(tls[1], 2);
 
   ASSERT_EQ(vec0.size(), 4);
   ASSERT_EQ(vec1.size(), 5);

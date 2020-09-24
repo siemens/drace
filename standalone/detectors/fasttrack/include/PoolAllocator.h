@@ -79,4 +79,34 @@ class PoolAllocator {
 };
 template <typename T, size_t numChunks>
 MemoryPool PoolAllocator<T, numChunks>::mem_pool(sizeof(T), numChunks);
+
+template <size_t size, size_t numChunks = 512>
+class SizePoolAllocator {
+ public:
+  SizePoolAllocator<size, numChunks>() = default;
+  ~SizePoolAllocator<size, numChunks>() = default;
+  using size_type = size_t;  // size of a memory adress (a pointer)
+
+  size_type max_size() const {  // maximum number of objects our allocator can
+                                // allocate -> sometimes REQUIRED
+    return std::numeric_limits<size_type>::max();
+  }
+
+  static void* allocate() {
+    return reinterpret_cast<void*>(mem_pool.allocate());
+  }
+
+  static void deallocate(void* ptr) {  // OFFICIAL VERSION
+    mem_pool.deallocate(ptr);
+  }
+
+  static void usedMemory() { mem_pool.printUsedMemory(); }
+
+ private:
+  static MemoryPool
+      mem_pool;  // static variables persist across specializations of templates
+};
+template <size_t size, size_t numChunks>
+MemoryPool SizePoolAllocator<size, numChunks>::mem_pool(size, numChunks);
+
 #endif  //! POOL_ALLOCATOR_HEADER_H

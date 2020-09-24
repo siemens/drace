@@ -18,7 +18,8 @@
 
 #include "PrefixTree_StackDepot.h"
 #include "stacktrace.h"
-#include "stacktrie.h"
+// #include "stacktrie.h"
+// #include "TreeDepot.h"
 
 /// implements a threadstate, holds the thread's vectorclock and the thread's id
 /// (tid and act clock)

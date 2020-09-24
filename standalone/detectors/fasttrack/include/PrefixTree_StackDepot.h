@@ -4,8 +4,8 @@
 
 #include <ipc/spinlock.h>
 #include <parallel_hashmap/phmap_utils.h>  // minimal header providing phmap::HashState()
-#include "parallel_hashmap/phmap.h"
 #include <deque>
+#include "parallel_hashmap/phmap.h"
 
 #include <PoolAllocator.h>
 
@@ -17,11 +17,13 @@ typedef struct TrieNode {
   size_t pc = -1;
   TrieNode* parent = nullptr;
 
+  size_t child_count = 0;
+
   bool operator==(const TrieNode& o) const {
     return pc == o.pc && parent == o.parent;
   }
-  
-  TrieNode(){
+
+  TrieNode() {
     pc = -1;
     parent = nullptr;
   }
@@ -53,7 +55,7 @@ class TrieStackDepot {
       m_curr_elem->parent = nullptr;
       m_curr_elem->pc = pc;
       auto it = m_trieNodeMap.find(*m_curr_elem);
-      if (it == m_trieNodeMap.end()){
+      if (it == m_trieNodeMap.end()) {
         m_trieNodeMap.emplace_hint(it, *m_curr_elem,
                                    phmap::flat_hash_map<size_t, TrieNode*>());
       }
@@ -66,12 +68,13 @@ class TrieStackDepot {
     if (hash_it == m_trieNodeMap.end()) {
       hash_it = m_trieNodeMap.emplace_hint(
           hash_it, *m_curr_elem, phmap::flat_hash_map<size_t, TrieNode*>());
-          hash_it->second.reserve(10);
+      hash_it->second.reserve(10);
     }
 
     auto it = hash_it->second.find((size_t)pc);
     if (it == hash_it->second.end()) {
-      it = hash_it->second.emplace_hint(it, pc, Allocator::allocate()).first;
+      it = hash_it->second.emplace_hint(it, pc, Allocator::allocate());
+      m_curr_elem->child_count++;
     }
     TrieNode* next = (it->second);
     next->parent = m_curr_elem;
@@ -80,20 +83,43 @@ class TrieStackDepot {
   }
 
   void ExitFunction() {
-    if (m_curr_elem == nullptr) return; // func_exit before func_enter
+    if (m_curr_elem == nullptr) return;  // func_exit before func_enter
 
     auto hash_it = m_trieNodeMap.find(*m_curr_elem);  // must be there
     if (m_curr_elem->parent == nullptr) {  // exiting the root function
-      for (auto it = hash_it->second.begin(); it != hash_it->second.end(); it++) {
+      for (auto it = hash_it->second.begin(); it != hash_it->second.end();
+           it++) {
         Allocator::deallocate(it->second);
       }
       Allocator::deallocate(m_curr_elem);
       m_curr_elem = nullptr;
       m_trieNodeMap.clear();
-       return;
+      return;
     }
 
     m_curr_elem = m_curr_elem->parent;
+  }
+
+  void PrintProf() {
+    TrieNode* iter = m_curr_elem;
+    while (iter->parent != nullptr) {
+      iter = iter->parent;
+    }
+
+    // iter should be root now;
+    auto hash_it = m_trieNodeMap.find(*iter);
+    for (auto& x : hash_it->second) {
+      std::cout << "child_count= " << x.second->child_count << " ";
+      Print(x.second);
+    }
+  }
+
+  void Print(TrieNode* root){
+    auto hash_it = m_trieNodeMap.find(*root);
+    for (auto& x : hash_it->second) {
+      std::cout << "child_count= " << x.second->child_count << " ";
+      Print(x.second);
+    }
   }
 
   std::deque<size_t> MakeTrace(const std::pair<size_t, TrieNode*>& data) const {

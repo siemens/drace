@@ -358,7 +358,6 @@ class Fasttrack : public Detector {
   }
 
   void finish(tls_t tls, tid_t thread_id) final {
-    std::cout << "thread finished" << std::endl;
 #if PROF_INFO
     PROF_FUNCTION();
 #endif
@@ -375,6 +374,12 @@ class Fasttrack : public Detector {
 #if PROF_INFO
     PROF_FUNCTION();
 #endif
+    std::cout<< "finalize called \n";
+
+for(auto& x : threads){
+  x.second->getStackDepot().PrintProf();
+}
+
     std::lock_guard<LockT> lg1(g_lock);
     vars.clear();
     locks.clear();
