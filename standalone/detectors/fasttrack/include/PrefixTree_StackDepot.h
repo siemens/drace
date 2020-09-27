@@ -26,6 +26,7 @@ typedef struct TrieNode {
   TrieNode() {
     pc = -1;
     parent = nullptr;
+    child_count = 0;
   }
 } TrieNode;
 
@@ -75,6 +76,7 @@ class TrieStackDepot {
     if (it == hash_it->second.end()) {
       it = hash_it->second.emplace_hint(it, pc, Allocator::allocate());
       m_curr_elem->child_count++;
+      // std::cout << "child_count= " << m_curr_elem->child_count << std::endl;
     }
     TrieNode* next = (it->second);
     next->parent = m_curr_elem;
@@ -100,7 +102,9 @@ class TrieStackDepot {
     m_curr_elem = m_curr_elem->parent;
   }
 
+  phmap::flat_hash_map<size_t, size_t> ProfMap;
   void PrintProf() {
+    // __debugbreak();
     TrieNode* iter = m_curr_elem;
     while (iter->parent != nullptr) {
       iter = iter->parent;
@@ -108,17 +112,37 @@ class TrieStackDepot {
 
     // iter should be root now;
     auto hash_it = m_trieNodeMap.find(*iter);
-    for (auto& x : hash_it->second) {
-      std::cout << "child_count= " << x.second->child_count << " ";
-      Print(x.second);
+    if (hash_it != m_trieNodeMap.end()) {
+      for (auto& x : hash_it->second) {
+        // std::cout << "child_count= " << x.second->child_count << "; ";
+        auto prof_it = ProfMap.find(x.second->child_count);
+        if(prof_it == ProfMap.end()){
+          ProfMap.insert({x.second->child_count, 1});
+        }else{
+          prof_it->second++;
+        }
+        Print(x.second);
+      }
+    }
+    for(auto& x : ProfMap){
+      std::cout << "child_count= " << x.first << " appeared "  << x.second << " times\n ";
     }
   }
 
-  void Print(TrieNode* root){
+  void Print(TrieNode* root) {
+    // __debugbreak();
     auto hash_it = m_trieNodeMap.find(*root);
-    for (auto& x : hash_it->second) {
-      std::cout << "child_count= " << x.second->child_count << " ";
-      Print(x.second);
+    if (hash_it != m_trieNodeMap.end()) {
+      for (auto& x : hash_it->second) {
+        // std::cout << "child_count= " << x.second->child_count << " ";
+        auto prof_it = ProfMap.find(x.second->child_count);
+        if (prof_it == ProfMap.end()) {
+          ProfMap.insert({x.second->child_count, 1});
+        } else {
+          prof_it->second++;
+        }
+        Print(x.second);
+      }
     }
   }
 

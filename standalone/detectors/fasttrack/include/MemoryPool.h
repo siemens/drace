@@ -1,9 +1,9 @@
 #ifndef MEMORY_POOL_HEADER_H
 #define MEMORY_POOL_HEADER_H 1
 
-#define STR(x) #x
 #include <assert.h>
 #include <iostream>
+#include "prof.h"
 
 struct Chunk
 {
@@ -38,5 +38,4 @@ private:
 	Chunk *getMoreMemory(); //allocate 1 block of chunks (of memory)
 	void do_deallocation(void *ptr);
 };
-//std::cout << STR(sizeof(Chunk)) << " = " << sizeof(size_t) << std::endl;
 #endif  // !MEMORY_POOL_HEADER_H

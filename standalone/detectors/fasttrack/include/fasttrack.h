@@ -139,7 +139,6 @@ class Fasttrack : public Detector {
   void read(tls_t tls, void* pc, void* addr, size_t size) final {
     ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
     thr->set_read_write((size_t)addr, reinterpret_cast<size_t>(pc));
-    // std::cout << "threads.size()= " << threads.size() << std::endl;
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((size_t)addr)]);
 #if DELETE_POLICY
@@ -183,7 +182,8 @@ class Fasttrack : public Detector {
       // finds the VarState instance of a specific addr or creates it
       auto it = vars.find((size_t)addr);
       if (it == vars.end()) {
-        it = create_var((size_t)addr);  // USE emplace.hint to avoid the extra look-up
+        it = create_var(
+            (size_t)addr);  // USE emplace.hint to avoid the extra look-up
       }
 #if PROF_INFO
       PROF_END_BLOCK
@@ -225,6 +225,11 @@ class Fasttrack : public Detector {
     std::lock_guard<LockT> exLockT(g_lock);
     auto del_thread_it = threads.find(child);
     auto parent_it = threads.find(parent);
+
+//--------------- next two lines are used to see the shape of the Tree
+    // std::cout << "threads.size()= " << threads.size() << std::endl;
+    // del_thread_it->second->getStackDepot().PrintProf();
+
     // TODO: we should never see invalid ids here.
     // However, after an application fault like in the howto,
     // at least one thread is joined multiple times
@@ -374,12 +379,6 @@ class Fasttrack : public Detector {
 #if PROF_INFO
     PROF_FUNCTION();
 #endif
-    std::cout<< "finalize called \n";
-
-for(auto& x : threads){
-  x.second->getStackDepot().PrintProf();
-}
-
     std::lock_guard<LockT> lg1(g_lock);
     vars.clear();
     locks.clear();

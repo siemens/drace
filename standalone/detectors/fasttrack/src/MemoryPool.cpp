@@ -1,6 +1,8 @@
 #include "MemoryPool.h"
 
 Chunk* MemoryPool::do_allocation() {
+  // DEB_FUNCTION();
+
   // TODO: allocate more objects at once
   if (m_FreePointer == nullptr) {
     m_FreePointer = getMoreMemory();
@@ -13,6 +15,8 @@ Chunk* MemoryPool::do_allocation() {
 }
 
 Chunk* MemoryPool::getMoreMemory() {
+  // DEB_FUNCTION();
+
   Chunk* start = reinterpret_cast<Chunk*>(operator new(m_blockSize));
   Chunk* it = start;
   for (size_t i = 0; i < m_numChunks - 1; ++i) {
@@ -26,6 +30,8 @@ Chunk* MemoryPool::getMoreMemory() {
 }
 
 void MemoryPool::do_deallocation(void* ptr) {
+  // DEB_FUNCTION();
+
   Chunk* c = reinterpret_cast<Chunk*>(ptr);
   c->next = m_FreePointer;
   m_FreePointer = c;
