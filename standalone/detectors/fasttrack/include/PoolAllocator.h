@@ -51,7 +51,7 @@ class PoolAllocator {
     return reinterpret_cast<pointer>(mem_pool.allocate());
   }
 
-  static void deallocate(pointer ptr) {  // OFFICIAL VERSION
+  static void deallocate(void* ptr) {  // OFFICIAL VERSION
     mem_pool.deallocate(ptr);
   }
 

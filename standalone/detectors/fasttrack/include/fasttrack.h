@@ -226,7 +226,7 @@ class Fasttrack : public Detector {
     auto del_thread_it = threads.find(child);
     auto parent_it = threads.find(parent);
 
-//--------------- next two lines are used to see the shape of the Tree
+    //--------------- next two lines are used to see the shape of the Tree
     // std::cout << "threads.size()= " << threads.size() << std::endl;
     // del_thread_it->second->getStackDepot().PrintProf();
 

@@ -43,22 +43,20 @@ using phmap_parallel_node_hash_map_no_mtx = phmap::parallel_node_hash_map<
 
 phmap_parallel_node_hash_map_no_mtx<size_t, VarState> vars;
 
+class Test{
+  static constexpr int N = 3;
+  public:
+   size_t pc = -1;           // 8 bytes
+   INode* parent = nullptr;  // 8 bytes
+  size_t child_values[N];
+  INode* child_nodes[N];
+};
+
 int main() {
   // test_memoryTrie();
   __debugbreak();
-
-  std::vector<int> v;
-  int size = 100;
-  v.reserve(100);
-  for (int i = 0; i < size; ++i) {
-    v.push_back(i);
-  }
-  for (int i = 0; i < size; ++i) {
-    std::cout << v[i] << std::endl;
-  }
-  std::cout << "size= " << v.size() << std::endl;
-  std::cout << "capacity= " << v.capacity() << std::endl;
-  std::cin.get();
+  deb(sizeof(Test));
+  newline();
   return 0;
 }
 

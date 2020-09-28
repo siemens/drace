@@ -31,7 +31,7 @@ class ThreadState : public VectorClock<> {
   TreeDepot traceDepot;
   VectorClock<>::TID m_own_tid;
 
-  phmap::flat_hash_map<size_t, std::pair<size_t, Node*>> _read_write;
+  phmap::flat_hash_map<size_t, std::pair<size_t, INode*>> _read_write;
 
  public:
   /// constructor of ThreadState object, initializes tid and clock
