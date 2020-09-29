@@ -181,19 +181,16 @@ class Segregator {
   static void deallocate(INode* ptr, size_t size) {  // put Node* for POC
     // call destructor and deallocate
     if (size < threshold1) {
-      // ptr->~Node(); //doens't work when I am calling destructor
+      // Node<threshold1>* tmp = dynamic_cast<Node<threshold1>*>(ptr);
+      // tmp->~Node<threshold1>(); //doens't work when I am calling destructor
       Allocator1::deallocate(ptr);
     } else if (size < threshold2) {
-      // ptr->~Node();//reinterpret_cast<Node<7>*> (ptr)
       Allocator2::deallocate(ptr);
     } else if (size < threshold3) {
-      // ptr->~Node();
       Allocator3::deallocate(ptr);
     } else if (size < threshold4) {
-      // ptr->~Node();
       Allocator4::deallocate(ptr);
     } else if (size < threshold5) {
-      // ptr->~Node();
       Allocator5::deallocate(ptr);
     } else {  // deallocate just 1;
       LargeAllocator al;
@@ -218,7 +215,7 @@ class TreeDepot {
 
     if (_curr_elem == nullptr) {
       // the root function has to be called with a big size
-      _curr_elem = Allocator::allocate(32);
+      _curr_elem = Allocator::allocate(5); //replace with 32
       _curr_elem->parent = nullptr;
       _curr_elem->pc = pc;
       return;
@@ -266,7 +263,7 @@ class TreeDepot {
     if (_curr_elem == nullptr) return;  // func_exit before func_enter
 
     if (_curr_elem->parent == nullptr) {  // exiting the root function
-      Allocator::deallocate(_curr_elem, _curr_elem->size() - 1);
+      // Allocator::deallocate(_curr_elem, _curr_elem->size() - 1);
       _curr_elem = nullptr;
       return;
     }
