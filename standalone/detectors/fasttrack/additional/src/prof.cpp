@@ -16,12 +16,12 @@
 #include "stacktrie.h"
 #include "trie.h"
 
-/*
----------------------------------------------------------------------
-Small application to test separately different parts of the necessary
-code
----------------------------------------------------------------------
-*/
+
+//---------------------------------------------------------------------
+// Small application to test separately different parts of the necessary
+// code
+//---------------------------------------------------------------------
+
 
 void test_overflow();
 void test_vector();

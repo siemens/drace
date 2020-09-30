@@ -7,13 +7,10 @@
 
 #include "PoolAllocator.h"
 #include "prof.h"
-#include <stdexcept>
 
 class INode {
  public:
-  //  using iterator = std::array<size_t>::iterator;
-  // virtual iterator begin() = 0;
-  size_t pc = -1;  // 8 bytes
+  size_t pc = -1;           // 8 bytes
   INode* parent = nullptr;  // 8 bytes
 
   virtual INode* FastCheck(size_t pc) const {
@@ -33,9 +30,6 @@ class INode {
     return 1;
   }
 
-  // // maybe template typename U
-  // void Copy(const Node& other) {}
-
   virtual void ChangeChildNode(INode* tmp, INode* _curr_elem) {
     throw std::runtime_error("Not implemented");
   }
@@ -43,38 +37,13 @@ class INode {
   virtual void ChangeParentNode(INode* tmp) {
     throw std::runtime_error("Not implemented");
   }
-  // virtual void SetParent(INode* tmp) {
-  //   throw std::runtime_error("Not implemented");
-  // }
-  // virtual INode* GetParent() const {
-  //   throw std::runtime_error("Not implemented");
-  //   return nullptr;
-  // }
-
-  // virtual void SetPC(size_t pc) { throw std::runtime_error("Not implemented"); }
-  // virtual size_t GetPC() const {
-  //   throw std::runtime_error("Not implemented");
-  //   return -1;
-  // }
 };
 
 template <size_t N>
 class Node : public INode {
  public:
-  // std::array<size_t, N> child_values;
-  // std::array<INode*, N> child_nodes;
-  size_t child_values[N];   // N * 8 bytes
-  INode* child_nodes[N];    // N * 8 bytes
-
-  // virtual void SetParent(INode* tmp) override { this->parent = tmp; }
-  // virtual INode* GetParent() const override { return this->parent; }
-
-  // virtual void SetPC(size_t pc) override { this->pc = pc; }
-  // virtual size_t GetPC() const override { return this->pc; }
-  // static constexpr int MAX_SIZE = 10000;
-  // std::vector<size_t, VectorAllocator<size_t>> child_values;
-  // std::vector<Node*, VectorAllocator<Node*>> child_nodes;
-  // iterator begin() override { return child_values.begin(); }
+  std::array<size_t, N> child_values; // N * 8 bytes
+  std::array<INode*, N> child_nodes;  // N * 8 bytes
 
   ~Node() = default;
   Node& operator=(const Node& other) = default;
@@ -132,8 +101,6 @@ class Node : public INode {
 template <class T>
 class Segregator {
  public:
-  // , int Threshold, class SmallAllocator,
-  //     class LargeAllocator
   static constexpr int threshold1 = 2;
   using Allocator1 = PoolAllocator<Node<threshold1>, 4096>;
   static constexpr int threshold2 = 6;
@@ -158,13 +125,13 @@ class Segregator {
       return new (reinterpret_cast<void*>(Allocator1::allocate()))
           Node<threshold1>();
     } else if (size < threshold2) {
-      return new (reinterpret_cast<void*>(Allocator2::allocate())) 
+      return new (reinterpret_cast<void*>(Allocator2::allocate()))
           Node<threshold2>();
     } else if (size < threshold3) {
       return new (reinterpret_cast<void*>(Allocator3::allocate()))
           Node<threshold3>();
     } else if (size < threshold4) {
-      return new (reinterpret_cast<void*>(Allocator4::allocate())) 
+      return new (reinterpret_cast<void*>(Allocator4::allocate()))
           Node<threshold4>();
     } else if (size < threshold5) {
       return new (reinterpret_cast<void*>(Allocator5::allocate()))
@@ -178,8 +145,7 @@ class Segregator {
     }
   }
 
-  static void deallocate(INode* ptr, size_t size) {  // put Node* for POC
-    // call destructor and deallocate
+  static void deallocate(INode* ptr, size_t size) {
     if (size < threshold1) {
       // Node<threshold1>* tmp = dynamic_cast<Node<threshold1>*>(ptr);
       // tmp->~Node<threshold1>(); //doens't work when I am calling destructor
@@ -215,7 +181,7 @@ class TreeDepot {
 
     if (_curr_elem == nullptr) {
       // the root function has to be called with a big size
-      _curr_elem = Allocator::allocate(5); //replace with 32
+      _curr_elem = Allocator::allocate(5);  // replace with 32
       _curr_elem->parent = nullptr;
       _curr_elem->pc = pc;
       return;
@@ -248,7 +214,6 @@ class TreeDepot {
     }
     // replace so that children of current node point to the new value
     _curr_elem->ChangeParentNode(tmp);
-    // deallocate also vectors within => it is done via the destructor
     Allocator::deallocate(_curr_elem, _curr_elem->size() - 1);
     _curr_elem = tmp;
     next->parent = _curr_elem;
@@ -264,6 +229,7 @@ class TreeDepot {
 
     if (_curr_elem->parent == nullptr) {  // exiting the root function
       // Allocator::deallocate(_curr_elem, _curr_elem->size() - 1);
+      // not deallocating anymore because node might be used
       _curr_elem = nullptr;
       return;
     }

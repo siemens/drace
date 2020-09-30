@@ -16,9 +16,6 @@
 #include "vectorclock.h"
 #include "xvector.h"
 
-#include "stacktrace.h"
-// #include "PrefixTree_StackDepot.h"
-// #include "stacktrie.h"
 #include "TreeDepot.h"
 
 /// implements a threadstate, holds the thread's vectorclock and the thread's id

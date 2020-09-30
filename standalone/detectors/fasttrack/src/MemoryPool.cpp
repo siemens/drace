@@ -1,39 +1,31 @@
 #include "MemoryPool.h"
 
 Chunk* MemoryPool::do_allocation() {
-  // DEB_FUNCTION();
-
-  // TODO: allocate more objects at once
-  if (m_FreePointer == nullptr) {
-    m_FreePointer = getMoreMemory();
+  if (_FreePointer == nullptr) {
+    _FreePointer = getMoreMemory();
   }
   // now we can for sure allocate all the objects.
-  Chunk* allocated = m_FreePointer;
-  m_FreePointer = m_FreePointer->next;
-  m_chunks_allocated++;
+  Chunk* allocated = _FreePointer;
+  _FreePointer = _FreePointer->next;
+  _chunks_allocated++;
   return allocated;
 }
 
 Chunk* MemoryPool::getMoreMemory() {
-  // DEB_FUNCTION();
-
-  Chunk* start = reinterpret_cast<Chunk*>(operator new(m_blockSize));
+  Chunk* start = reinterpret_cast<Chunk*>(operator new(_blockSize));
   Chunk* it = start;
-  for (size_t i = 0; i < m_numChunks - 1; ++i) {
+  for (size_t i = 0; i < _numChunks - 1; ++i) {
     it->next =
-        reinterpret_cast<Chunk*>(reinterpret_cast<char*>(it) + m_chunkSize);
+        reinterpret_cast<Chunk*>(reinterpret_cast<char*>(it) + _chunkSize);
     it = it->next;
   }
   it->next = nullptr;
-  // m_chunks_free += m_numChunks;
   return start;
 }
 
 void MemoryPool::do_deallocation(void* ptr) {
-  // DEB_FUNCTION();
-
   Chunk* c = reinterpret_cast<Chunk*>(ptr);
-  c->next = m_FreePointer;
-  m_FreePointer = c;
-  m_chunks_allocated--;
+  c->next = _FreePointer;
+  _FreePointer = c;
+  _chunks_allocated--;
 }
