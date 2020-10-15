@@ -577,5 +577,5 @@ TEST(FasttrackTest, RaceAndStackTrace) {
   ft->func_enter(tls[1], (void*)0x70ull);
   // here, we expect the race. Handled in callback
   ft->finalize();
-  __debugbreak();
+  // __debugbreak();
 }

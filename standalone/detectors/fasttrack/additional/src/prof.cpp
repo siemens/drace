@@ -16,12 +16,10 @@
 #include "stacktrie.h"
 #include "trie.h"
 
-
 //---------------------------------------------------------------------
 // Small application to test separately different parts of the necessary
 // code
 //---------------------------------------------------------------------
-
 
 void test_overflow();
 void test_vector();
@@ -43,20 +41,7 @@ using phmap_parallel_node_hash_map_no_mtx = phmap::parallel_node_hash_map<
 
 phmap_parallel_node_hash_map_no_mtx<size_t, VarState> vars;
 
-class Test{
-  static constexpr int N = 3;
-  public:
-   size_t pc = -1;           // 8 bytes
-   INode* parent = nullptr;  // 8 bytes
-  size_t child_values[N];
-  INode* child_nodes[N];
-};
-
 int main() {
-  // test_memoryTrie();
-  __debugbreak();
-  deb(sizeof(Test));
-  newline();
   return 0;
 }
 
@@ -92,20 +77,15 @@ void test_memoryTrie() {
 
   int i = 2;
   // std::string tmp = std::to_string(addr[i]);
-  std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(addr[i]) << std::endl;
+  std::cout << std::boolalpha << _memoryTrie->SearchValue(addr[i]) << std::endl;
   i = 7;
-  std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(addr[i]) << std::endl;
+  std::cout << std::boolalpha << _memoryTrie->SearchValue(addr[i]) << std::endl;
   i = 9;
-  std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(addr[i]) << std::endl;
+  std::cout << std::boolalpha << _memoryTrie->SearchValue(addr[i]) << std::endl;
   i = 15;
-  std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(addr[i]) << std::endl;
+  std::cout << std::boolalpha << _memoryTrie->SearchValue(addr[i]) << std::endl;
   i = 18;
-  std::cout << std::boolalpha
-            << _memoryTrie->SearchValue(addr[i]) << std::endl;
+  std::cout << std::boolalpha << _memoryTrie->SearchValue(addr[i]) << std::endl;
   std::cin.get();
 }
 

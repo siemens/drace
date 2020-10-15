@@ -127,19 +127,19 @@ class DetectorOutput {
   }
 
   static void callback(const Detector::Race* race) {
-    static uintptr_t s1 = 0, s2 = 0;
-    if (s1 != race->first.stack_trace[0] && s2 != race->second.stack_trace[0]) {
-      static int i = 0;
-      s1 = race->first.stack_trace[0];
-      s2 = race->second.stack_trace[0];
-      std::cout << "pc:   " << (void*)(s1) << " " << (void*)(s2) << std::endl
-                << "addr: " << (void*)(race->first.accessed_memory) << std::endl
-                << "rw:   " << (race->first.write ? "write" : "read") << " "
-                << (race->second.write ? "write" : "read") << std::endl
-                << "tid:  " << std::hex << race->first.thread_id << " "
-                << std::hex << race->second.thread_id << std::endl;
-      std::cout << "race: " << ++i << "\n";
-    }
+    //static uintptr_t s1 = 0, s2 = 0;
+    //if (s1 != race->first.stack_trace[0] && s2 != race->second.stack_trace[0]) {
+    //  static int i = 0;
+    //  s1 = race->first.stack_trace[0];
+    //  s2 = race->second.stack_trace[0];
+    //  std::cout << "pc:   " << (void*)(s1) << " " << (void*)(s2) << std::endl
+    //            << "addr: " << (void*)(race->first.accessed_memory) << std::endl
+    //            << "rw:   " << (race->first.write ? "write" : "read") << " "
+    //            << (race->second.write ? "write" : "read") << std::endl
+    //            << "tid:  " << std::hex << race->first.thread_id << " "
+    //            << std::hex << race->second.thread_id << std::endl;
+    //  std::cout << "race: " << ++i << "\n";
+    //}
   }
 };
 

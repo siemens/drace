@@ -2,6 +2,12 @@
 #define PROF_HEADER_H 1
 #pragma once
 
+//---------------------------------------------------------------------
+// Header file that defines the profiling class ProfTimer used to
+// benchmark code on the principle of RAII along with other useful
+// commands used for debugging and profiling
+//---------------------------------------------------------------------
+
 #include <ipc/spinlock.h>
 #include <chrono>
 #include <cstdio>
@@ -19,23 +25,25 @@
   std::cout << std::setw(25) << #x << " = " << std::setw(5) << x << " "
 #define newline() std::cout << std::endl
 
-#define DEB_FUNCTION()        \
+#define LINE() __LINE__
+// printf("Not logical value at line number %d in file %s\n", __LINE__,
+// __FILE__);
+
+#define PRINT_TID()                                     \
+  std::thread::id this_id = std::this_thread::get_id(); \
+  std::cout << "thread ID is: " << this_id << "; ";
+
+#define DEB_FUNCTION()         \
   std::string func = __func__; \
   std::cout << "Function " << func << " called\n";
 
 #define SLEEP_THREAD()                                    \
   static int count = 0;                                   \
   if (count == 10) {                                      \
-    std::this_thread::sleep_for(std::chrono::seconds(5)); \
+    std::this_thread::sleep_for(std::chrono::seconds(2)); \
     count = 0;                                            \
   }                                                       \
   count++;
-
-//---------------------------------------------------------------------
-// Header file that defines the profiling class ProfTimer used to
-// benchmark code on the principle of RAII.
-//---------------------------------------------------------------------
-
 
 #define CONCATENATE_IMPL(s1, s2) s1##s2
 #define CONCATENATE(s1, s2) CONCATENATE_IMPL(s1, s2)
@@ -69,9 +77,9 @@
 
 //  private:
 //   std::string name_;
-//   std::chrono::time_point<std::chrono::high_resolution_clock> startTimePoint_;
-//   static phmap::flat_hash_map<std::string, double> TimeTable;
-//   static ipc::spinlock TimeTableSPL;
+//   std::chrono::time_point<std::chrono::high_resolution_clock>
+//   startTimePoint_; static phmap::flat_hash_map<std::string, double>
+//   TimeTable; static ipc::spinlock TimeTableSPL;
 // };
 
 // phmap::flat_hash_map<std::string, double> ProfTimer::TimeTable;
@@ -111,7 +119,8 @@
 //     x.second /= 1000;
 //     int mins = x.second / 60;
 //     double seconds = x.second - mins * 60;
-//     printf("%25s = %15.3f ms: %4d min, %4.2f s, %6.3f %% \n", x.first.c_str(),
+//     printf("%25s = %15.3f ms: %4d min, %4.2f s, %6.3f %% \n",
+//     x.first.c_str(),
 //            millis, mins, seconds, percentage);
 //   }
 // }

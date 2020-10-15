@@ -1,6 +1,12 @@
 #include "MemoryPool.h"
+// #include <ipc/spinlock.h>
+
+// ipc::spinlock g_memPoolLock;
 
 Chunk* MemoryPool::do_allocation() {
+  // DEB_FUNCTION();  // REMOVE_ME
+  // std::lock_guard<ipc::spinlock> lg(g_memPoolLock);
+
   if (_FreePointer == nullptr) {
     _FreePointer = getMoreMemory();
   }
@@ -12,6 +18,9 @@ Chunk* MemoryPool::do_allocation() {
 }
 
 Chunk* MemoryPool::getMoreMemory() {
+  // DEB_FUNCTION();  // REMOVE_ME
+  // std::lock_guard<ipc::spinlock> lg(g_memPoolLock);
+
   Chunk* start = reinterpret_cast<Chunk*>(operator new(_blockSize));
   Chunk* it = start;
   for (size_t i = 0; i < _numChunks - 1; ++i) {
@@ -24,6 +33,9 @@ Chunk* MemoryPool::getMoreMemory() {
 }
 
 void MemoryPool::do_deallocation(void* ptr) {
+  // DEB_FUNCTION();  // REMOVE_ME
+  // std::lock_guard<ipc::spinlock> lg(g_memPoolLock);
+
   Chunk* c = reinterpret_cast<Chunk*>(ptr);
   c->next = _FreePointer;
   _FreePointer = c;

@@ -24,50 +24,50 @@
 class VarState {
  public:
   static constexpr uint32_t VAR_NOT_INIT = 0;
-  static constexpr uint32_t R_ID_SHARED = -1;
+  static constexpr uint32_t READ_SHARED = -1;
 
   // TODO: make these private and make setters & getters for it
   /// local clock of last read
-  VectorClock<>::VC_ID w_id{VAR_NOT_INIT};
-  // these are th_num (first 14 bits) + 18 bits epoch
+  VectorClock<>::VC_ID _writeID{VAR_NOT_INIT};
+  // these are th_num (first 11 bits) + 21 bits epoch
 
   /// local clock of last read
-  VectorClock<>::VC_ID r_id{VAR_NOT_INIT};
+  VectorClock<>::VC_ID _readID{VAR_NOT_INIT};
 
   VarState() = default;
 
   /// returns id of last write access
-  constexpr VectorClock<>::VC_ID get_write_id() const { return w_id; }
+  constexpr VectorClock<>::VC_ID GetWriteID() const { return _writeID; }
 
   /// returns id of last read access (when read is not shared)
-  constexpr VectorClock<>::VC_ID get_read_id() const { return r_id; }
+  constexpr VectorClock<>::VC_ID GetReadID() const { return _readID; }
 
   /// return tid of thread which last wrote this var
-  constexpr VectorClock<>::TID get_w_tid() const {
-    return VectorClock<>::make_tid(w_id);
-  }
-
-  constexpr VectorClock<>::Thread_Num get_w_th_num() const {
-    return VectorClock<>::make_th_num(w_id);
-  }
-  constexpr VectorClock<>::Thread_Num get_r_th_num() const {
-    return VectorClock<>::make_th_num(r_id);
+  constexpr VectorClock<>::TID GetWriteThreadID() const {
+    return VectorClock<>::MakeThreadID(_writeID);
   }
 
   /// return tid of thread which last read this var, if not read shared
-  constexpr VectorClock<>::TID get_r_tid() const {
-    return VectorClock<>::make_tid(r_id);
+  constexpr VectorClock<>::TID GetReadThreadID() const {
+    return VectorClock<>::MakeThreadID(_readID);
+  }
+
+  constexpr VectorClock<>::Thread_Num GetWriteThreadNum() const {
+    return VectorClock<>::MakeThreadNum(_writeID);
+  }
+  constexpr VectorClock<>::Thread_Num GetReadThreadNum() const {
+    return VectorClock<>::MakeThreadNum(_readID);
   }
 
   /// returns clock value of thread of last write access
-  constexpr VectorClock<>::Clock get_w_clock() const {
-    return VectorClock<>::make_clock(w_id);
+  constexpr VectorClock<>::Clock GetWriteClock() const {
+    return VectorClock<>::MakeClock(_writeID);
   }
 
   /// returns clock value of thread of last read access (returns 0 when read is
   /// shared)
-  constexpr VectorClock<>::Clock get_r_clock() const{
-    return VectorClock<>::make_clock(r_id);
+  constexpr VectorClock<>::Clock GetReadClock() const{
+    return VectorClock<>::MakeClock(_readID);
   }
 
   /// evaluates for write/write races through this and and access through t

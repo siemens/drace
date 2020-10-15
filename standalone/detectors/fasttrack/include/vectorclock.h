@@ -27,7 +27,7 @@ class VectorClock {
   typedef uint32_t VC_ID;  // first 11 bits represent the TID / thread number
                            // and last 21 bits the Clock
   static constexpr uint32_t CLOCK_BITS = 21;
-  static constexpr uint32_t CLOCK_MASK = 0x1FFFFF;
+  static constexpr uint32_t CLOCK_MASK = (1 << CLOCK_BITS) - 1;  // 0x1FFFFF;
   // 32 comes from the fact that uint32_t has 32 bits
   static constexpr uint32_t MAX_TH_NUM = (1 << (32 - CLOCK_BITS)) - 1;
   typedef uint32_t TID;
@@ -46,7 +46,7 @@ class VectorClock {
     auto it_end = this->vc.end();
 
     for (; it != it_end; it++) {
-      Clock tmp = make_clock(it->second);
+      Clock tmp = MakeClock(it->second);
       if (tmp < min_clock) {
         min_clock = tmp;
       }
@@ -97,7 +97,7 @@ class VectorClock {
   Clock get_clock_by_th_num(Thread_Num th_num) const {
     auto it = vc.find(th_num);
     if (it != vc.end()) {
-      return make_clock(it->second);
+      return MakeClock(it->second);
     } else {
       return 0;
     }
@@ -114,18 +114,18 @@ class VectorClock {
   }
 
   /// returns the tid of the id
-  static constexpr TID make_tid(VC_ID id) {
+  static constexpr TID MakeThreadID(VC_ID id) {
     Thread_Num th_num = id >> CLOCK_BITS;
     return make_tid_from_th_num(th_num);
   }
 
   /// returns the clock of the id
-  static constexpr Clock make_clock(VC_ID id) {
+  static constexpr Clock MakeClock(VC_ID id) {
     return static_cast<Clock>(id & CLOCK_MASK);
   }
 
   /// returns the clock of the id
-  static constexpr Thread_Num make_th_num(VC_ID id) {
+  static constexpr Thread_Num MakeThreadNum(VC_ID id) {
     return static_cast<Thread_Num>(id >> CLOCK_BITS);
   }
 
@@ -145,6 +145,12 @@ class VectorClock {
 
   /// creates an id with clock=0 from an tid
   static constexpr VC_ID make_id(TID tid) {
+    //---------------------------------------------------------------------
+    // TODO: for stack functionality we would still have to remove everything
+    // belonging to a thread when it is joined -> really slow.
+    // we can work with ever increasing numbers, as the stack functionality is
+    // only useful for optimization/stacktrace
+    //---------------------------------------------------------------------
     Thread_Num thread_no = thread_nums.top();
     thread_nums.pop();
 
@@ -165,7 +171,8 @@ class VectorClock {
  private:
   static bool _thread_no_initiliazation;
   static bool ThreadNoInitialization() {
-    for (int i = MAX_TH_NUM; i >= 1; --i) {
+    for (int i = MAX_TH_NUM; i >= 1;
+         --i) {  //!! thread numbers start from 1 because of is_rw_sh_race
       thread_nums.emplace(i);
     }
     return true;

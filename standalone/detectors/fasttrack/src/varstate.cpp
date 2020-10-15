@@ -12,8 +12,8 @@
 
 /// evaluates for write/write races through this and and access through t
 bool VarState::is_ww_race(ThreadState* t) const {
-  if (get_write_id() != VAR_NOT_INIT && t->get_th_num() != get_w_th_num() &&
-      get_w_clock() >= t->get_clock_by_th_num(get_w_th_num())) {
+  if (GetWriteID() != VAR_NOT_INIT && t->get_th_num() != GetWriteThreadNum() &&
+      GetWriteClock() >= t->get_clock_by_th_num(GetWriteThreadNum())) {
     return true;
   }
   return false;
@@ -21,9 +21,9 @@ bool VarState::is_ww_race(ThreadState* t) const {
 
 /// evaluates for write/read races through this and and access through t
 bool VarState::is_wr_race(ThreadState* t) const {
-  auto var_th_num = get_w_th_num();
-  if (get_write_id() != VAR_NOT_INIT && (var_th_num != t->get_th_num()) &&
-      (get_w_clock() >= t->get_clock_by_th_num(var_th_num))) {
+  auto var_th_num = GetWriteThreadNum();
+  if (GetWriteID() != VAR_NOT_INIT && (var_th_num != t->get_th_num()) &&
+      (GetWriteClock() >= t->get_clock_by_th_num(var_th_num))) {
     return true;
   }
   return false;
@@ -32,9 +32,9 @@ bool VarState::is_wr_race(ThreadState* t) const {
 /// evaluates for read-exclusive/write races through this and and access through
 /// t
 bool VarState::is_rw_ex_race(ThreadState* t) const {
-  auto var_th_num = get_r_th_num();
-  if (get_read_id() != VAR_NOT_INIT && t->get_th_num() != var_th_num &&
-      get_r_clock() >= t->get_clock_by_th_num(var_th_num))  // read-write race
+  auto var_th_num = GetReadThreadNum();
+  if (GetReadID() != VAR_NOT_INIT && t->get_th_num() != var_th_num &&
+      GetReadClock() >= t->get_clock_by_th_num(var_th_num))  // read-write race
   {
     return true;
   }
@@ -46,10 +46,10 @@ VectorClock<>::Thread_Num VarState::is_rw_sh_race(
     ThreadState* t, xvector<VectorClock<>::VC_ID>* shared_vc) const {
   for (uint32_t i = 0; i < shared_vc->size(); ++i) {
     VectorClock<>::VC_ID act_id = get_sh_id(i, shared_vc);
-    VectorClock<>::Thread_Num act_th_num = VectorClock<>::make_th_num(act_id);
+    VectorClock<>::Thread_Num act_th_num = VectorClock<>::MakeThreadNum(act_id);
 
     if (act_id != 0 && t->get_th_num() != act_th_num &&
-        VectorClock<>::make_clock(act_id) >=
+        VectorClock<>::MakeClock(act_id) >=
             t->get_clock_by_th_num(act_th_num)) {
       return act_th_num;
     }
@@ -64,7 +64,7 @@ std::vector<VectorClock<>::VC_ID>::iterator VarState::find_in_vec(
   auto it = shared_vc->begin();
   auto it_end = shared_vc->end();
   for (; it != it_end; ++it) {
-    if (VectorClock<>::make_th_num(*it) ==
+    if (VectorClock<>::MakeThreadNum(*it) ==
         th_num) {
       return it;
     }
@@ -99,7 +99,7 @@ VectorClock<>::Clock VarState::get_clock_by_th_num(
     xvector<VectorClock<>::VC_ID>* shared_vc) const {
   auto it = find_in_vec(th_num, shared_vc);
   if (it != shared_vc->end()) {
-    return VectorClock<>::make_clock(*it);
+    return VectorClock<>::MakeClock(*it);
   }
   return 0;
 }

@@ -13,137 +13,61 @@
 #include <memory>
 #include <unordered_map>
 
+// using Allocator =
+
+template <class K, class V>
+using phmap_small = phmap::parallel_node_hash_map<
+    K, V, phmap::container_internal::hash_default_hash<K>,
+    phmap::container_internal::hash_default_eq<K>,
+    DRaceAllocator<std::pair<const K, V>>,
+    6,  // number of SubMaps; change here affects
+    phmap::NullMutex>;
+
 typedef struct TrieNode {
   size_t pc = -1;
   TrieNode* parent = nullptr;
+  phmap::node_hash_map<size_t, TrieNode> _childNodes;
 
-  size_t child_count = 0;
-
-  bool operator==(const TrieNode& o) const {
-    return pc == o.pc && parent == o.parent;
-  }
-
-  TrieNode() {
-    pc = -1;
-    parent = nullptr;
-    child_count = 0;
-  }
+  TrieNode() = default;
 } TrieNode;
 
-namespace std {
-template <>
-struct hash<TrieNode> {
-  std::size_t operator()(TrieNode const& p) const {
-    return phmap::HashState().combine(0, p.pc);
-  }
-};
-}  // namespace std
-
-using Allocator = PoolAllocator<TrieNode, 512>;
-
 class TrieStackDepot {
-  TrieNode* m_curr_elem = nullptr;
-  phmap::flat_hash_map<TrieNode, phmap::flat_hash_map<size_t, TrieNode*>>
-      m_trieNodeMap;
-
+  TrieNode* _curr_elem = nullptr;
  public:
-  TrieNode* GetCurrentElement() { return m_curr_elem; }
+  TrieNode* GetCurrentElement() { return _curr_elem; }
 
   void InsertFunction(size_t pc) {
-    if (m_curr_elem == nullptr) {
-      // using new was slow => PoolAllocator
-      m_curr_elem = Allocator::allocate();
-      m_curr_elem->parent = nullptr;
-      m_curr_elem->pc = pc;
-      auto it = m_trieNodeMap.find(*m_curr_elem);
-      if (it == m_trieNodeMap.end()) {
-        m_trieNodeMap.emplace_hint(it, *m_curr_elem,
-                                   phmap::flat_hash_map<size_t, TrieNode*>());
-      }
-      return;
+    if (_curr_elem == nullptr) {
+      // TODO: using new is slow => PoolAllocator
+      _curr_elem = new TrieNode();
+      _curr_elem->parent = nullptr;
+      _curr_elem->pc = pc;
     }
-    if (pc == m_curr_elem->pc) return;  // done for recursive functions;
+    if (pc == _curr_elem->pc) return;  // done for recursive functions;
     // no need to use more nodes for same function
 
-    auto hash_it = m_trieNodeMap.find(*m_curr_elem);
-    if (hash_it == m_trieNodeMap.end()) {
-      hash_it = m_trieNodeMap.emplace_hint(
-          hash_it, *m_curr_elem, phmap::flat_hash_map<size_t, TrieNode*>());
-      hash_it->second.reserve(10);
+    auto it = _curr_elem->_childNodes.find((size_t)pc);
+    if (it == _curr_elem->_childNodes.end()) {
+      it = _curr_elem->_childNodes.emplace_hint(it, pc, TrieNode());
     }
 
-    auto it = hash_it->second.find((size_t)pc);
-    if (it == hash_it->second.end()) {
-      it = hash_it->second.emplace_hint(it, pc, Allocator::allocate());
-      m_curr_elem->child_count++;
-      // std::cout << "child_count= " << m_curr_elem->child_count << std::endl;
-    }
-    TrieNode* next = (it->second);
-    next->parent = m_curr_elem;
-    m_curr_elem = next;
-    m_curr_elem->pc = pc;
+    TrieNode* next = &(it->second);
+    next->parent = _curr_elem;
+    _curr_elem = next;
+    _curr_elem->pc = pc;
   }
 
   void ExitFunction() {
-    if (m_curr_elem == nullptr) return;  // func_exit before func_enter
+    if (_curr_elem == nullptr) return;  // func_exit before func_enter
 
-    auto hash_it = m_trieNodeMap.find(*m_curr_elem);  // must be there
-    if (m_curr_elem->parent == nullptr) {  // exiting the root function
-      for (auto it = hash_it->second.begin(); it != hash_it->second.end();
-           it++) {
-        Allocator::deallocate(it->second);
-      }
-      Allocator::deallocate(m_curr_elem);
-      m_curr_elem = nullptr;
-      m_trieNodeMap.clear();
+    if (_curr_elem->parent == nullptr) {  // exiting the root function
+      // delete _curr_elem; !! MEMORY IS NEVER FREED DOING THIS
+      // as there can be still slements pointing to it
+      _curr_elem = nullptr;
       return;
     }
 
-    m_curr_elem = m_curr_elem->parent;
-  }
-
-  phmap::flat_hash_map<size_t, size_t> ProfMap;
-  void PrintProf() {
-    // __debugbreak();
-    TrieNode* iter = m_curr_elem;
-    while (iter->parent != nullptr) {
-      iter = iter->parent;
-    }
-
-    // iter should be root now;
-    auto hash_it = m_trieNodeMap.find(*iter);
-    if (hash_it != m_trieNodeMap.end()) {
-      for (auto& x : hash_it->second) {
-        // std::cout << "child_count= " << x.second->child_count << "; ";
-        auto prof_it = ProfMap.find(x.second->child_count);
-        if(prof_it == ProfMap.end()){
-          ProfMap.insert({x.second->child_count, 1});
-        }else{
-          prof_it->second++;
-        }
-        Print(x.second);
-      }
-    }
-    for(auto& x : ProfMap){
-      std::cout << "child_count= " << x.first << " appeared "  << x.second << " times\n ";
-    }
-  }
-
-  void Print(TrieNode* root) {
-    // __debugbreak();
-    auto hash_it = m_trieNodeMap.find(*root);
-    if (hash_it != m_trieNodeMap.end()) {
-      for (auto& x : hash_it->second) {
-        // std::cout << "child_count= " << x.second->child_count << " ";
-        auto prof_it = ProfMap.find(x.second->child_count);
-        if (prof_it == ProfMap.end()) {
-          ProfMap.insert({x.second->child_count, 1});
-        } else {
-          prof_it->second++;
-        }
-        Print(x.second);
-      }
-    }
+    _curr_elem = _curr_elem->parent;
   }
 
   std::deque<size_t> MakeTrace(const std::pair<size_t, TrieNode*>& data) const {
