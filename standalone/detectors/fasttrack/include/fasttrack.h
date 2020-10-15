@@ -73,11 +73,11 @@ class Fasttrack : public Detector {
   bool log_flag = true;
   bool final_output = (true && log_flag);
 
-#define DELETE_POLICY false
-  bool _flag_removeUselessVarStates = (true && DELETE_POLICY);
-  bool _flag_removeDropSubMaps = (false && DELETE_POLICY);
-  bool _flag_removeRandomVarStates = (true && DELETE_POLICY);
-  bool _flag_removeLowestClockVarStates = (false && DELETE_POLICY);
+  bool _removeMemoryAdresses = false;
+  bool _flag_removeUselessVarStates = (true && _removeMemoryAdresses);
+  bool _flag_removeDropSubMaps = (false && _removeMemoryAdresses);
+  bool _flag_removeRandomVarStates = (true && _removeMemoryAdresses);
+  bool _flag_removeLowestClockVarStates = (false && _removeMemoryAdresses);
   std::size_t vars_size = 50000;  // TODO: optimal threshold
 
   // used in RemoveUselessVarStates to skip the run through the HashMap unless
@@ -147,11 +147,11 @@ class Fasttrack : public Detector {
     thr->set_read_write((size_t)addr, reinterpret_cast<size_t>(pc));
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((size_t)addr)]);
-#if DELETE_POLICY
-      if (vars.size() >= vars_size) {
-        DeleteMemoryAddresses();
+      if (_removeMemoryAdresses) {
+        if (vars.size() >= vars_size) {
+          RemoveMemoryAddresses();
+        }
       }
-#endif
 #if PROF_INFO
       PROF_START_BLOCK("find")
 #endif
@@ -179,11 +179,11 @@ class Fasttrack : public Detector {
 
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((size_t)addr)]);
-#if DELETE_POLICY
-      if (vars.size() >= vars_size) {
-        DeleteMemoryAddresses();
+      if (_removeMemoryAdresses) {
+        if (vars.size() >= vars_size) {
+          RemoveMemoryAddresses();
+        }
       }
-#endif
 #if PROF_INFO
       PROF_START_BLOCK("find")
 #endif
@@ -262,7 +262,9 @@ class Fasttrack : public Detector {
 
     par_thread->update(*del_thread);
 
-    RemoveVarStatesOfThread(del_thread_th_num);
+    if (_removeMemoryAdresses) {
+      RemoveVarStatesOfThread(del_thread_th_num);
+    }
 
     threads.erase(del_thread_it);  // no longer do the search
     cleanup(del_thread_th_num);
@@ -768,10 +770,9 @@ class Fasttrack : public Detector {
         it->second.delete_vc(th_num);
       }
     }
-    VectorClock<>::thread_nums.emplace(th_num);
   }
 
-  inline void DeleteMemoryAddresses() {
+  inline void RemoveMemoryAddresses() {
 #if PROF_INFO
     PROF_FUNCTION();
 #endif
@@ -819,8 +820,8 @@ class Fasttrack : public Detector {
 #endif
     auto it = vars.begin();
     while (it != vars.end()) {
-      if (VectorClock<>::make_th_num(it->second.get_write_id()) == th_num &&
-          VectorClock<>::make_th_num(it->second.get_read_id()) ==
+      if (VectorClock<>::MakeThreadNum(it->second.GetReadID()) == th_num &&
+          VectorClock<>::MakeThreadNum(it->second.GetReadID()) ==
               th_num) {  // the memory address was accessed only by this thread
         auto tmp = it;
         it++;
@@ -828,14 +829,14 @@ class Fasttrack : public Detector {
         if (log_flag) {
           log_count.no_VarStates_Of_Thread_removed++;
         }
-      } else if (VectorClock<>::make_th_num(it->second.get_write_id()) ==
+      } else if (VectorClock<>::MakeThreadNum(it->second.GetWriteID()) ==
                  th_num) {
-        it->second.w_id = VarState::VAR_NOT_INIT;
+        it->second._writeID = VarState::VAR_NOT_INIT;
         it++;
         continue;
-      } else if (VectorClock<>::make_th_num(it->second.get_read_id()) ==
+      } else if (VectorClock<>::MakeThreadNum(it->second.GetReadID()) ==
                  th_num) {
-        it->second.r_id = VarState::VAR_NOT_INIT;
+        it->second._readID = VarState::VAR_NOT_INIT;
         it++;
         continue;
       } else {
@@ -902,7 +903,7 @@ class Fasttrack : public Detector {
 
     auto it = vars.begin();
     // number of VarStates to consider at once for choosing
-    std::size_t no_VarStates = 4;
+    int no_VarStates = 4;
     std::size_t pos = 0;
     std::size_t vsize = vars.size();
 

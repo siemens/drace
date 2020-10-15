@@ -38,7 +38,7 @@ class VectorClock {
   phmap::flat_hash_map<Thread_Num, VC_ID> vc;
 
   /// returns the no. of elements of the vector clock
-  constexpr uint32_t get_length() { return vc.size(); }
+  constexpr size_t get_length() { return vc.size(); }
 
   Clock get_min_clock() {
     Clock min_clock = -1;
@@ -138,49 +138,25 @@ class VectorClock {
     }
   }
 
-  // TODO: put them at the top
-  static std::stack<Thread_Num> thread_nums;
+  static Thread_Num thread_no;
   static phmap::flat_hash_map<VectorClock<>::Thread_Num, VectorClock<>::TID>
       thread_ids;
 
   /// creates an id with clock=0 from an tid
   static constexpr VC_ID make_id(TID tid) {
-    //---------------------------------------------------------------------
-    // TODO: for stack functionality we would still have to remove everything
-    // belonging to a thread when it is joined -> really slow.
-    // we can work with ever increasing numbers, as the stack functionality is
-    // only useful for optimization/stacktrace
-    //---------------------------------------------------------------------
-    Thread_Num thread_no = thread_nums.top();
-    thread_nums.pop();
-
-    // checking for empty stack, no more thread numbers left
-    // bool empty_stack = false;
-    // if (thread_nums.empty()) {
-    //  empty_stack = true;
-    //}
-    // while (empty_stack) {
-    //  if (!thread_nums.empty()) empty_stack = false;
-    //}
-
     thread_ids.emplace(thread_no, tid);
     VC_ID id = thread_no << CLOCK_BITS;  // epoch is 0
+    thread_no++;
+    if (thread_no >= MAX_TH_NUM) {
+      // 16383 is the maximum number of threads. Afterwards we'll have to
+      // overwrite them if thread_no goes over 16384, no TIDs will be found
+      // anymore in thread_ids => queue functionality;
+      thread_no = 1;
+    }
     return id;
   }
-
- private:
-  static bool _thread_no_initiliazation;
-  static bool ThreadNoInitialization() {
-    for (int i = MAX_TH_NUM; i >= 1;
-         --i) {  //!! thread numbers start from 1 because of is_rw_sh_race
-      thread_nums.emplace(i);
-    }
-    return true;
-  }
 };
-std::stack<VectorClock<>::Thread_Num> VectorClock<>::thread_nums;
-bool VectorClock<>::_thread_no_initiliazation =
-    VectorClock<>::ThreadNoInitialization();
+VectorClock<>::Thread_Num VectorClock<>::thread_no = 1;
 phmap::flat_hash_map<VectorClock<>::Thread_Num, VectorClock<>::TID>
     VectorClock<>::thread_ids;
 #endif

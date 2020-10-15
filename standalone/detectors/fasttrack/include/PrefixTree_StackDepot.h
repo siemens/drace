@@ -13,16 +13,6 @@
 #include <memory>
 #include <unordered_map>
 
-// using Allocator =
-
-template <class K, class V>
-using phmap_small = phmap::parallel_node_hash_map<
-    K, V, phmap::container_internal::hash_default_hash<K>,
-    phmap::container_internal::hash_default_eq<K>,
-    DRaceAllocator<std::pair<const K, V>>,
-    6,  // number of SubMaps; change here affects
-    phmap::NullMutex>;
-
 typedef struct TrieNode {
   size_t pc = -1;
   TrieNode* parent = nullptr;

@@ -67,7 +67,7 @@ class ThreadState : public VectorClock<> {
     // PRINT_TID();
     // DEB_FUNCTION();  // REMOVE_ME
 
-    // std::lock_guard<ipc::spinlock> lg(_read_write_lock);
+    std::lock_guard<ipc::spinlock> lg(_read_write_lock);
     auto it = _read_write.find(addr);
     if (it == _read_write.end()) {
       // TODO: maybe use std::move avoid copy on pair
