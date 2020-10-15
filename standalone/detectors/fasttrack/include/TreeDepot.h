@@ -3,7 +3,6 @@
 #pragma once
 
 #include <memory>
-#include <vector>
 
 #include "PoolAllocator.h"
 #include "prof.h"
@@ -98,31 +97,19 @@ class Node : public INode {
   }
 };
 
-using Allocator = Segregator<
-    Node<2>, 2, ThreadSafePoolAllocator<Node<2>, 4096>,
-    Segregator<
-        Node<6>, 6, ThreadSafePoolAllocator<Node<6>, 2048>,
-        Segregator<
-            Node<10>, 10, ThreadSafePoolAllocator<Node<10>, 512>,
-            Segregator<Node<38>, 38, ThreadSafePoolAllocator<Node<38>, 256>,
-                       Segregator<Node<198>, 198,
-                                  ThreadSafePoolAllocator<Node<198>, 16>,
-                                  Segregator<Node<1000>, 1000,
-                                             std::allocator<Node<1000>>>>>>>>;
-
 template <class T>
-class Segregator {
+class SelectAllocator {
  public:
   static constexpr int threshold1 = 2;
-  using Allocator1 = ThreadSafePoolAllocator<Node<threshold1>, 4096>;
+  using Allocator1 = PoolAllocator<Node<threshold1>, 4096>;
   static constexpr int threshold2 = 6;
-  using Allocator2 = ThreadSafePoolAllocator<Node<threshold2>, 2048>;
+  using Allocator2 = PoolAllocator<Node<threshold2>, 1024>;
   static constexpr int threshold3 = 10;
-  using Allocator3 = ThreadSafePoolAllocator<Node<threshold3>, 512>;
+  using Allocator3 = PoolAllocator<Node<threshold3>, 16>;
   static constexpr int threshold4 = 38;
-  using Allocator4 = ThreadSafePoolAllocator<Node<threshold4>, 256>;
+  using Allocator4 = PoolAllocator<Node<threshold4>, 16>;
   static constexpr int threshold5 = 198;
-  using Allocator5 = ThreadSafePoolAllocator<Node<threshold5>, 16>;
+  using Allocator5 = PoolAllocator<Node<threshold5>, 16>;
   static constexpr int threshold6 = 1000;
   using LargeAllocator = std::allocator<Node<threshold6>>;
 
@@ -132,12 +119,6 @@ class Segregator {
   Allocator4 al4;
   Allocator5 al5;
   LargeAllocator alL;
-
-  // template <class T, std::enable_if<Threshold == 3, void>::type* = nullptr>
-  // static T* allocate(size_t size) {
-  //   new (reinterpret_cast<void*>(Allocator1::allocate()))
-  //       Node<threshold1>(threshold1);
-  // }
 
   T* allocate(size_t size) {
     if (size < threshold1) {
@@ -151,7 +132,6 @@ class Segregator {
     } else if (size < threshold5) {
       return new (reinterpret_cast<void*>(al5.allocate())) Node<threshold5>();
     } else {  // allocate just 1;
-      // LargeAllocator al;
       Node<threshold6>* new_t =
           std::allocator_traits<LargeAllocator>::allocate(alL, 1);
       std::allocator_traits<LargeAllocator>::construct(alL, new_t);
@@ -173,8 +153,6 @@ class Segregator {
     } else if (size < threshold5) {
       al5.deallocate(ptr);
     } else {  // deallocate just 1;
-      // LargeAllocator al;
-      // std::allocator_traits<LargeAllocator>::deallocate(al, ptr, 1);
       Node<threshold6>* tmp = dynamic_cast<Node<threshold6>*>(ptr);
       std::allocator_traits<LargeAllocator>::destroy(alL, tmp);
       std::allocator_traits<LargeAllocator>::deallocate(alL, tmp, 1);
@@ -182,7 +160,7 @@ class Segregator {
   }
 };
 
-using Allocator = Segregator<INode>;
+using Allocator = SelectAllocator<INode>;
 extern ipc::spinlock _read_write_lock;
 
 class TreeDepot {
@@ -192,26 +170,27 @@ class TreeDepot {
  public:
   INode* GetCurrentElement() {
     // std::lock_guard<ipc::spinlock> lg(_read_write_lock);
+    return _curr_elem;
 
-    DEB_FUNCTION();  // REMOVE_ME
-    if (_curr_elem) {
-      PRINT_TID();
-      newline();
-      // SLEEP_THREAD();
-      return _curr_elem;
-    } else {
-      PRINT_TID();
-      printf("Not logical value at line number %d in file %s\n", __LINE__,
-             __FILE__);
-      return nullptr;
-    }
+    // // DEB_FUNCTION();  // REMOVE_ME
+    // if (_curr_elem) {
+    //   // PRINT_TID();
+    //   // newline();
+    //   // SLEEP_THREAD();
+    //   return _curr_elem;
+    // } else {
+    //   // PRINT_TID();
+    //   //printf("Not logical value at line number %d in file %s\n", __LINE__,
+    //   //       __FILE__);
+    //   return nullptr;
+    // }
   }
 
   void InsertFunction(size_t pc) {
     std::lock_guard<ipc::spinlock> lg(_read_write_lock);
 
-    PRINT_TID();
-    DEB_FUNCTION();  // REMOVE_ME
+    // PRINT_TID();
+    // DEB_FUNCTION();  // REMOVE_ME
 
     if (_curr_elem == nullptr) {
       // the root function has to be called with a big size
@@ -263,8 +242,8 @@ class TreeDepot {
   void ExitFunction() {
     std::lock_guard<ipc::spinlock> lg(_read_write_lock);
 
-    PRINT_TID();
-    DEB_FUNCTION();  // REMOVE_ME
+    // PRINT_TID();
+    // DEB_FUNCTION();  // REMOVE_ME
 
     if (_curr_elem == nullptr) return;  // func_exit before func_enter
 
@@ -278,7 +257,9 @@ class TreeDepot {
   }
 
   std::deque<size_t> MakeTrace(const std::pair<size_t, INode*>& data) const {
-    DEB_FUNCTION();  // REMOVE_ME
+    std::lock_guard<ipc::spinlock> lg(_read_write_lock);
+
+    // DEB_FUNCTION();  // REMOVE_ME
 
     std::deque<size_t> this_stack;
     this_stack.emplace_front(data.first);

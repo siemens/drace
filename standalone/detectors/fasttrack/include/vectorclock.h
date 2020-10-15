@@ -13,13 +13,12 @@
 
 #include <stack>
 #include "parallel_hashmap/phmap.h"
-/*
----------------------------------------------------------------------
-Implements a VectorClock.
-Can hold an arbitrarily number pairs of Thread Numbers (replacement for
-Thread IDs) and the belonging clock
----------------------------------------------------------------------
-*/
+
+//---------------------------------------------------------------------
+// Implements a VectorClock.
+// Can hold an arbitrarily number pairs of Thread Numbers (replacement for
+// Thread IDs) and the belonging clock
+//---------------------------------------------------------------------
 
 template <class _al = std::allocator<std::pair<const size_t, size_t>>>
 class VectorClock {
@@ -148,9 +147,8 @@ class VectorClock {
     VC_ID id = thread_no << CLOCK_BITS;  // epoch is 0
     thread_no++;
     if (thread_no >= MAX_TH_NUM) {
-      // 16383 is the maximum number of threads. Afterwards we'll have to
-      // overwrite them if thread_no goes over 16384, no TIDs will be found
-      // anymore in thread_ids => queue functionality;
+      // MAX_TH_NUM is the maximum number of threads. Afterwards we'll have to
+      // overwrite them if thread_no goes over MAX_TH_NUM => queue functionality;
       thread_no = 1;
     }
     return id;

@@ -262,10 +262,6 @@ class Fasttrack : public Detector {
 
     par_thread->update(*del_thread);
 
-    if (_removeMemoryAdresses) {
-      RemoveVarStatesOfThread(del_thread_th_num);
-    }
-
     threads.erase(del_thread_it);  // no longer do the search
     cleanup(del_thread_th_num);
   }
@@ -769,6 +765,9 @@ class Fasttrack : public Detector {
       for (auto it = happens_states.begin(); it != happens_states.end(); ++it) {
         it->second.delete_vc(th_num);
       }
+    }
+    if (_removeMemoryAdresses) {
+      RemoveVarStatesOfThread(th_num);
     }
   }
 

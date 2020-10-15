@@ -3,7 +3,6 @@
 #pragma once
 
 #include <ipc/spinlock.h>
-#include <parallel_hashmap/phmap_utils.h>  // minimal header providing phmap::HashState()
 #include <deque>
 #include "parallel_hashmap/phmap.h"
 
@@ -11,7 +10,13 @@
 
 #include <iostream>
 #include <memory>
-#include <unordered_map>
+
+//---------------------------------------------------------------------
+// Implementation of a Prefix Tree for being able to reproduce call
+// stacks. Works, it is faster on single-thread, however, because
+// memory allocations under DynamoRIO are very costly, they really
+// slow down the execution, as the hash maps need to reallocate
+//---------------------------------------------------------------------
 
 typedef struct TrieNode {
   size_t pc = -1;

@@ -16,8 +16,9 @@
 #include "vectorclock.h"
 #include "xvector.h"
 
-// #include "TreeDepot.h"
 #include "PrefixTree_StackDepot.h"
+#include "TreeDepot.h"
+#include "stacktrace.h"
 
 /// implements a threadstate, holds the thread's vectorclock and the thread's id
 /// (tid and act clock)
@@ -28,8 +29,8 @@ class ThreadState : public VectorClock<> {
   VectorClock<>::VC_ID id;
   VectorClock<>::TID m_own_tid;
 
-  TrieStackDepot traceDepot;
-  phmap::flat_hash_map<size_t, std::pair<size_t, TrieNode*>> _read_write;
+  TreeDepot traceDepot;
+  phmap::flat_hash_map<size_t, std::pair<size_t, INode*>> _read_write;
 
  public:
   /// constructor of ThreadState object, initializes tid and clock
@@ -60,7 +61,7 @@ class ThreadState : public VectorClock<> {
   inline void delete_vector() { vc.clear(); }
 
   /// return stackDepot of this thread
-  TrieStackDepot& getStackDepot() { return traceDepot; }
+  TreeDepot& getStackDepot() { return traceDepot; }
 
   mutable ipc::spinlock _read_write_lock;
   inline void set_read_write(size_t addr, size_t pc) {
@@ -86,7 +87,7 @@ class ThreadState : public VectorClock<> {
                             // reallocate
     auto it = _read_write.find(address);
     if (it != _read_write.end()) {
-      auto data = it->second;  // copying no reference to element in the HashMap
+      auto data = it->second;
       return traceDepot.MakeTrace(data);
     }
     // A read/write operation was not tracked correctly => return empty
