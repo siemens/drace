@@ -37,11 +37,9 @@ if(Boost_FOUND)
         target_compile_options("drace.detector.fasttrack.generic" PUBLIC "/MT$<$<CONFIG:Debug>:d>")
     endif()
 
-    target_include_directories("drace.detector.fasttrack.generic"
-        PUBLIC "include"
-        PUBLIC "${Boost_INCLUDE_DIR}")
+    target_include_directories("drace.detector.fasttrack.generic" PUBLIC "include")
 
-    target_link_libraries("drace.detector.fasttrack.generic" "drace-common" "parallel-hashmap")
+    target_link_libraries("drace.detector.fasttrack.generic" "drace-common" "parallel-hashmap" Boost::boost)
 
     ###########standalone Version#####################
     add_library("drace.detector.fasttrack.standalone" SHARED "src/fasttrack_st.cpp")
@@ -50,6 +48,9 @@ if(Boost_FOUND)
 
     # include exports header
     target_include_directories("drace.detector.fasttrack.standalone" PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+    target_include_directories("drace.detector.fasttrack.standalone" INTERFACE
+      $<INSTALL_INTERFACE:include>
+      $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/common/detector>)
     target_link_libraries("drace.detector.fasttrack.standalone" PRIVATE "drace.detector.fasttrack.generic" Threads::Threads)
     set_target_properties(
         "drace.detector.fasttrack.standalone" PROPERTIES
@@ -68,20 +69,19 @@ if(Boost_FOUND)
     endif()
 
     install(TARGETS "drace.detector.fasttrack.standalone"
+        PUBLIC_HEADER DESTINATION ${DRACE_INCLUDE_DEST}/fasttrack COMPONENT Development
         RUNTIME DESTINATION ${DRACE_RUNTIME_DEST}/fasttrack COMPONENT Runtime
         LIBRARY DESTINATION ${DRACE_RUNTIME_DEST}/fasttrack COMPONENT Runtime
         ARCHIVE DESTINATION ${DRACE_ARCHIVE_DEST}/fasttrack COMPONENT Development)
     # TODO add target for drace-detector with INSTALL_INTERFACE
-    install(FILES ${PROJECT_SOURCE_DIR}/common/detector/Detector.h DESTINATION ${DRACE_INCLUDE_DEST}/fasttrack)
+    install(FILES ${PROJECT_SOURCE_DIR}/common/detector/Detector.h DESTINATION ${DRACE_INCLUDE_DEST})
 
     ################ configure test module ################
     if(BUILD_TESTING)
         # create library which is linked in global testing module
         add_executable(fasttrack_test ${FT_TEST_SOURCES})
-        target_link_libraries(fasttrack_test PRIVATE gtest gtest_main "drace-common" "parallel-hashmap")
-        target_include_directories(fasttrack_test
-        PUBLIC "include"
-        PUBLIC "${Boost_INCLUDE_DIR}")
+        target_link_libraries(fasttrack_test PRIVATE gtest gtest_main "drace-common" "parallel-hashmap" Boost::boost)
+        target_include_directories(fasttrack_test PUBLIC "include")
         set_target_properties(
             fasttrack_test PROPERTIES
             CXX_STANDARD 17
