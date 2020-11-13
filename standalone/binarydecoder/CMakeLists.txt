@@ -5,4 +5,4 @@ if(UNIX)
     target_link_libraries("drace.detector.tracebinary.decoder" "-ldl")
 endif()
 
-install(TARGETS "drace.detector.tracebinary.decoder" DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY})
+install(TARGETS "drace.detector.tracebinary.decoder" DESTINATION ${DRACE_RUNTIME_DEST})
