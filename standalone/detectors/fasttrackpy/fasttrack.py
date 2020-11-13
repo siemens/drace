@@ -20,11 +20,11 @@ d.init('', on_race)
 t1 = d.fork(1,2)
 t2 = d.fork(1,3)
 # do some stuff
-d.func_enter(t1, 42)
-d.func_exit(t1)
+t1.func_enter(42)
+t1.func_exit()
 
 # enforce race
-d.write(t1, 0xDEAD, 0x42, 0)
-d.write(t2, 0xBEEF, 0x42, 0)
+t1.write(0xDEAD, 0x42, 0)
+t2.write(0xBEEF, 0x42, 0)
 d.finalize()
 print('finished execution')
