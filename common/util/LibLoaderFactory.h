@@ -11,6 +11,7 @@
  */
 
 #include <memory>
+#include <string>
 
 #include "LibraryLoader.h"
 #ifdef WIN32
