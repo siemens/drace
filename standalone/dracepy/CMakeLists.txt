@@ -4,7 +4,7 @@ set(SOURCES
 
 Python_add_library(dracepy MODULE ${SOURCES})
 target_link_libraries(dracepy PUBLIC
-  "drace.detector.fasttrack.standalone"
+  "drace-common"
   Boost::python${Python_VERSION_MAJOR}${Python_VERSION_MINOR})
 target_include_directories(dracepy PRIVATE include)
 

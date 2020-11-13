@@ -9,7 +9,7 @@
  * SPDX-License-Identifier: MIT
  */
 #pragma once
-#include <Detector.h>
+#include <detector/Detector.h>
 
 class ThreadStatePy {
  public:
@@ -18,7 +18,9 @@ class ThreadStatePy {
   void acquire(size_t mutex, int recursive, bool write) {
     _det->acquire(_tls, reinterpret_cast<void*>(mutex), recursive, write);
   }
-  void release(void* mutex, bool write) { _det->release(_tls, mutex, write); }
+  void release(size_t mutex, bool write) {
+    _det->release(_tls, reinterpret_cast<void*>(mutex), write);
+  }
   void happens_before(size_t identifier) {
     _det->happens_before(_tls, reinterpret_cast<void*>(identifier));
   }

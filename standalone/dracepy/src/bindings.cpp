@@ -10,13 +10,14 @@
  */
 
 #include <boost/algorithm/string.hpp>
-#include <boost/python/extract.hpp>
 #include <boost/python/class.hpp>
+#include <boost/python/extract.hpp>
 #include <boost/python/list.hpp>
 #include <boost/python/module.hpp>
 #include <string>
 
-#include <Detector.h>
+#include <detector/Detector.h>
+#include "AccessEntryUtils.h"
 #include "DetectorPy.h"
 #include "ThreadStatePy.h"
 
@@ -26,6 +27,7 @@ BOOST_PYTHON_MODULE(dracepy) {
       "Detector",
         "race-detection object that uses the specified backend algorithm",
         python::init<const std::string&>())
+      .def(python::init<const std::string&,const std::string&>())
       .def("init", &DetectorPy::init,
         "initialize the detector. Has to be called before any analysis function.")
       .def("finalize", &DetectorPy::finalize,
@@ -57,9 +59,10 @@ BOOST_PYTHON_MODULE(dracepy) {
       .def("write", &ThreadStatePy::write,
         "log a memory write");
 
-  python::class_<Detector::AccessEntry>("AccessEntry")
-      .add_property("write", &Detector::AccessEntry::write)
-      .add_property("thread_id", &Detector::AccessEntry::thread_id)
-      .add_property("address", &Detector::AccessEntry::accessed_memory);
+  python::class_<Detector::AccessEntry>("AccessEntry", python::init<>())
+      .def_readonly("write", &Detector::AccessEntry::write)
+      .def_readonly("thread_id", &Detector::AccessEntry::thread_id)
+      .def_readonly("address", &Detector::AccessEntry::accessed_memory)
+      .add_property("callstack", &AccessEntryUtils::getStackAsList);
   // clang-format on
 };

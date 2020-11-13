@@ -9,16 +9,22 @@
  * SPDX-License-Identifier: MIT
  */
 #pragma once
-#include <Detector.h>
+#include <detector/Detector.h>
+#include <util/LibLoaderFactory.h>
+#include <util/LibraryLoader.h>
+
+#include <boost/python/dict.hpp>
 #include <boost/python/list.hpp>
 #include <boost/python/object.hpp>
+#include <memory>
 #include <string>
 
 namespace python = boost::python;
 
 class DetectorPy {
  public:
-  explicit DetectorPy(const std::string& detector);
+  explicit DetectorPy(const std::string& detector,
+                      const std::string& path = {});
   inline ~DetectorPy() { finalize(); }
 
   void init(const python::list& args, python::object callback);
@@ -32,7 +38,10 @@ class DetectorPy {
   inline const char* name() { return _det->name(); };
   inline const char* version() { return _det->version(); };
 
+  static void handle_race(const Detector::Race* r);
+
  private:
+  std::shared_ptr<util::LibraryLoader> _loader;
   std::unique_ptr<Detector> _det;
   bool _active{false};
   // detector does not support context.
