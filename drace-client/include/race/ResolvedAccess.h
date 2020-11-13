@@ -25,9 +25,7 @@ class ResolvedAccess : public Detector::AccessEntry {
   std::vector<symbol::SymbolLocation> resolved_stack;
 
   explicit ResolvedAccess(const Detector::AccessEntry& e)
-      : Detector::AccessEntry(e) {
-    std::copy(e.stack_trace, e.stack_trace + e.stack_size, this->stack_trace);
-  }
+      : Detector::AccessEntry(e) {}
 };
 }  // namespace race
 }  // namespace drace

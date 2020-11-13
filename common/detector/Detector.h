@@ -10,6 +10,7 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <utility>
@@ -50,7 +51,8 @@ class Detector {
   static constexpr int max_stack_size = 16;
 
   /// A single memory access
-  struct AccessEntry {
+  class AccessEntry {
+   public:
     bool write;
     bool onheap{false};
     unsigned thread_id;
@@ -61,7 +63,7 @@ class Detector {
     size_t heap_block_size;
     uintptr_t accessed_memory;
     uintptr_t heap_block_begin;
-    uintptr_t stack_trace[max_stack_size];
+    std::array<uintptr_t, max_stack_size> stack_trace;
   };
 
   /// A Data-Race is a tuple of two Accesses

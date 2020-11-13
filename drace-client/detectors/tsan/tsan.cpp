@@ -77,7 +77,7 @@ class Tsan : public Detector {
         // TODO: this should not happen
         return;
       }
-      memcpy(access.stack_trace, race_info_ac->stack_trace,
+      memcpy(access.stack_trace.data(), race_info_ac->stack_trace,
              ssize * sizeof(uint64_t));
       access.stack_size = ssize;
 

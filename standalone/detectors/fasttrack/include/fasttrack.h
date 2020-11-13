@@ -127,7 +127,7 @@ class Fasttrack : public Detector {
     access1.heap_block_size = 0;
     access1.onheap = false;
     access1.stack_size = stack1.size();
-    std::copy(stack1.begin(), stack1.end(), access1.stack_trace);
+    std::copy(stack1.begin(), stack1.end(), access1.stack_trace.begin());
 
     Detector::AccessEntry access2;
     access2.thread_id = thr2;
@@ -139,7 +139,7 @@ class Fasttrack : public Detector {
     access2.heap_block_size = 0;
     access2.onheap = false;
     access2.stack_size = stack2.size();
-    std::copy(stack2.begin(), stack2.end(), access2.stack_trace);
+    std::copy(stack2.begin(), stack2.end(), access2.stack_trace.begin());
 
     Detector::Race race;
     race.first = access1;
