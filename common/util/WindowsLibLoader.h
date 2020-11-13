@@ -34,7 +34,7 @@ class WindowsLibLoader : public LibraryLoader {
     if (loaded()) return false;
 
     _lib = LoadLibrary(filename);
-    return true;
+    return NULL != _lib;
   }
 
   /**
