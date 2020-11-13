@@ -13,7 +13,9 @@
 #include "ThreadStatePy.h"
 
 #include <boost/algorithm/string.hpp>
-#include <boost/python.hpp>
+#include <boost/python/extract.hpp>
+#include <boost/python/list.hpp>
+#include <boost/python/object.hpp>
 #include <vector>
 
 namespace python = boost::python;
@@ -26,14 +28,12 @@ DetectorPy::DetectorPy(const std::string& detector) {
   _det.reset(CreateDetector());
 }
 
-void DetectorPy::init(const std::string& args, python::object callback) {
-  // TODO: take list of strings instead of single string
-  // arguments
-  std::vector<std::string> tokens;
-  boost::split(tokens, args, [](char c) { return c == ' '; });
+void DetectorPy::init(const python::list& args, python::object callback) {
+  std::vector<std::string> argstrings;
   std::vector<const char*> argv;
-  for (const auto& s : tokens) {
-    argv.push_back(s.c_str());
+  for (long i = 0; i < python::len(args); ++i) {
+    argstrings.push_back(python::extract<std::string>(args[i])());
+    argv.push_back(argstrings.back().c_str());
   }
   // callback
   _pycb = callback;

@@ -16,7 +16,7 @@ def on_race(a1, a2):
   print('  a2: tid: {}'.format(a2.thread_id))
 
 d = dracepy.Detector('fasttrack')
-d.init('', on_race)
+d.init([], on_race)
 t1 = d.fork(1,2)
 t2 = d.fork(1,3)
 # do some stuff

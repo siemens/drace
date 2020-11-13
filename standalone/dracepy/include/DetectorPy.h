@@ -10,6 +10,7 @@
  */
 #pragma once
 #include <Detector.h>
+#include <boost/python/list.hpp>
 #include <boost/python/object.hpp>
 #include <string>
 
@@ -20,7 +21,7 @@ class DetectorPy {
   explicit DetectorPy(const std::string& detector);
   inline ~DetectorPy() { finalize(); }
 
-  void init(const std::string& args, python::object callback);
+  void init(const python::list& args, python::object callback);
   void finalize();
 
   python::object fork(Detector::tid_t parent, Detector::tid_t child);

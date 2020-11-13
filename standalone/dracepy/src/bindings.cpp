@@ -10,9 +10,10 @@
  */
 
 #include <boost/algorithm/string.hpp>
-#include <boost/python.hpp>
 #include <boost/python/extract.hpp>
+#include <boost/python/class.hpp>
 #include <boost/python/list.hpp>
+#include <boost/python/module.hpp>
 #include <string>
 
 #include <Detector.h>
