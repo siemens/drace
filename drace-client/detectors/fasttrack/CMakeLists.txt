@@ -24,6 +24,4 @@ if(TARGET "drace.detector.fasttrack.generic")
     install(TARGETS "drace.detector.fasttrack"
         RUNTIME DESTINATION ${DRACE_RUNTIME_DEST} COMPONENT Runtime
         LIBRARY DESTINATION ${DRACE_ARCHIVE_DEST} COMPONENT ARCHIVE)
-    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/fasttrack_dr_export.h DESTINATION ${DRACE_INCLUDE_DEST})
-
 endif()
