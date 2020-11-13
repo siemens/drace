@@ -87,15 +87,13 @@ class DetectorPy {
   inline const char* version() { return _det->version(); };
 
  private:
-  static void handle_race(const Detector::Race* r);
+  static void handle_race(const Detector::Race* r, void* context);
 
  private:
   std::shared_ptr<util::LibraryLoader> _loader;
   std::unique_ptr<Detector> _det;
   bool _active{false};
-  // detector does not support context.
-  // TODO: remove static once i#82 is implemented
-  static python::object _pycb;
+  python::object _pycb;
 };
 
 }  // namespace dracepy

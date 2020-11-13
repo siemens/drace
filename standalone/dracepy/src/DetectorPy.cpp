@@ -24,9 +24,6 @@
 using namespace dracepy;
 namespace python = boost::python;
 
-// declare static python callback
-python::object DetectorPy::_pycb;
-
 DetectorPy::DetectorPy(const std::string& detector, const std::string& path)
     : _loader(util::LibLoaderFactory::getLoader()) {
   // if no path is specified, let system search for library
@@ -55,7 +52,7 @@ void DetectorPy::init(const python::list& args, python::object callback) {
 
   // initialize detector
   _det->init(static_cast<int>(argv.size()), argv.data(),
-             DetectorPy::handle_race);
+             DetectorPy::handle_race, reinterpret_cast<void*>(this));
   _active = true;
 }
 
@@ -72,6 +69,6 @@ ThreadStatePy DetectorPy::fork(Detector::tid_t parent, Detector::tid_t child) {
   return ThreadStatePy{tls, _det.get()};
 }
 
-void DetectorPy::handle_race(const Detector::Race* r) {
-  DetectorPy::_pycb(r->first, r->second);
+void DetectorPy::handle_race(const Detector::Race* r, void* ctx) {
+  ((DetectorPy*)ctx)->_pycb(r->first, r->second);
 }

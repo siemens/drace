@@ -66,6 +66,7 @@ class Fasttrack : public Detector {
 
   /// holds the callback address to report a race to the drace-main
   Callback clb;
+  void* clb_context;
 
   /// switch logging of read/write operations
   bool log_flag = false;
@@ -145,7 +146,7 @@ class Fasttrack : public Detector {
     race.first = access1;
     race.second = access2;
 
-    ((void (*)(const Detector::Race*))clb)(&race);
+    clb(&race, clb_context);
   }
 
   /**
@@ -396,9 +397,10 @@ class Fasttrack : public Detector {
  public:
   explicit Fasttrack() = default;
 
-  bool init(int argc, const char** argv, Callback rc_clb) final {
+  bool init(int argc, const char** argv, Callback rc_clb, void* context) final {
     parse_args(argc, argv);
     clb = rc_clb;  // init callback
+    clb_context = context;
     return true;
   }
 

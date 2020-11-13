@@ -36,6 +36,11 @@ class Tsan : public Detector {
     bool active;
   };
 
+  struct UserCallback {
+    Callback fn;
+    void* context;
+  };
+
   /// reserved area at begin of shadow memory addr range;
   static constexpr uint64_t MEMSTART = 0xc0'0000'0000ull;
 
@@ -43,10 +48,11 @@ class Tsan : public Detector {
   ipc::spinlock mxspin;
   std::unordered_map<uint64_t, size_t> allocations;
   std::unordered_map<Detector::tid_t, ThreadState> thread_states;
+  UserCallback user_clbk;
 
   static void reportRaceCallBack(__tsan_race_info* raceInfo,
                                  void* add_race_clb) {
-    // Fixes erronous thread exit handling by ignoring races where at least one
+    // Fixes erroneous thread exit handling by ignoring races where at least one
     // tid is 0
     if (!raceInfo->access1->user_id || !raceInfo->access2->user_id) return;
 
@@ -87,7 +93,8 @@ class Tsan : public Detector {
         race.second = access;
       }
     }
-    ((void (*)(const Race*))add_race_clb)(&race);
+    UserCallback* uc = reinterpret_cast<UserCallback*>(add_race_clb);
+    uc->fn(&race, uc->context);
   }
 
   /*
@@ -139,13 +146,17 @@ class Tsan : public Detector {
   }
 
  public:
-  virtual bool init(int argc, const char** argv, Callback rc_clb) {
+  Tsan() = default;
+  Tsan(const Tsan&) = delete;
+
+  virtual bool init(int argc, const char** argv, Callback rc_clb,
+                    void* context) {
     parse_args(argc, argv);
     print_config();
 
     thread_states.reserve(128);
-
-    __tsan_init_simple(reportRaceCallBack, (void*)rc_clb);
+    user_clbk = UserCallback{rc_clb, context};
+    __tsan_init_simple(reportRaceCallBack, (void*)&user_clbk);
 
     // we fake the go-mapping here, until we have implemented
     // the allocation interceptors in i#11

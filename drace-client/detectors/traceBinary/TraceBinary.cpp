@@ -39,7 +39,8 @@ class TraceBinary : public Detector {
     file = std::fstream("trace.bin", std::ios::out | std::ios::binary);
   }
 
-  virtual bool init(int argc, const char** argv, Callback rc_clb) {
+  virtual bool init(int argc, const char** argv, Callback rc_clb,
+                    void* context) {
     return true;
   }
 

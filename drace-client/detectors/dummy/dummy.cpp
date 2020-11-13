@@ -24,7 +24,8 @@ namespace detector {
 /// Fake detector that stubs the \ref Detector interface
 class Dummy : public Detector {
  public:
-  virtual bool init(int argc, const char** argv, Callback rc_clb) {
+  virtual bool init(int argc, const char** argv, Callback rc_clb,
+                    void* context) {
     return true;
   }
 

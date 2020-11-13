@@ -31,7 +31,7 @@ class DetectorTest : public ::testing::TestWithParam<const char*> {
   Detector* detector;
 
   // each callback-call increases num_races by two
-  static void callback(const Detector::Race* race) {
+  static void callback(const Detector::Race* race, void* context) {
     // copy race to let testing code inspect it later
     last_race = *race;
     ++num_races;
@@ -57,7 +57,7 @@ class DetectorTest : public ::testing::TestWithParam<const char*> {
 
       detector = det_it->second;
       const char* _argv = "drace-tests.exe";
-      detector->init(1, &_argv, callback);
+      detector->init(1, &_argv, callback, nullptr);
     } else {
       detector = det_it->second;
     }

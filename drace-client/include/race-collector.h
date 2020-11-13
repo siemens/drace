@@ -124,7 +124,7 @@ class RaceCollector {
    * RaceCollector::add_race on the singleton object. As we have to pass this
    * callback to as a function pointer to c, we cannot use \ref std::bind
    */
-  static void race_collector_add_race(const Detector::Race* r);
+  static void race_collector_add_race(const Detector::Race* r, void* context);
 
   /**
    * \brief get instance to this singleton

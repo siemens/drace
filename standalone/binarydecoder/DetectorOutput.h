@@ -40,7 +40,7 @@ class DetectorOutput {
     _det = std::unique_ptr<Detector>(create_detector());
 
     const char* _argv = "";
-    _det->init(1, &_argv, callback);
+    _det->init(1, &_argv, callback, nullptr);
 
     std::cout << "init_done\n";
   }
@@ -126,7 +126,7 @@ class DetectorOutput {
     }
   }
 
-  static void callback(const Detector::Race* race) {
+  static void callback(const Detector::Race* race, void* context) {
     static uintptr_t s1 = 0, s2 = 0;
     if (s1 != race->first.stack_trace[0] && s2 != race->second.stack_trace[0]) {
       static int i = 0;

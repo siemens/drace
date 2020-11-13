@@ -74,7 +74,8 @@ void RaceCollector::resolve_all() {
   }
 }
 
-void RaceCollector::race_collector_add_race(const Detector::Race* r) {
+void RaceCollector::race_collector_add_race(const Detector::Race* r,
+                                            void* context) {
   RaceCollector::_instance->add_race(r);
   // for benchmarking and testing
   if (params.break_on_race) {

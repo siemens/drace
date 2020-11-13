@@ -24,7 +24,7 @@ namespace detector {
 /// Fake detector that stubs the \ref Detector interface
 class Printer : public Detector {
  public:
-  virtual bool init(int argc, const char** argv, Callback rc_clb) {
+  virtual bool init(int argc, const char** argv, Callback rc_clb, void*) {
     printf("init\n");
     return true;
   }
