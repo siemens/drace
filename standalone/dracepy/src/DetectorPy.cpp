@@ -21,6 +21,7 @@
 #include <boost/python/object.hpp>
 #include <vector>
 
+using namespace dracepy;
 namespace python = boost::python;
 
 // declare static python callback
@@ -50,7 +51,6 @@ void DetectorPy::init(const python::list& args, python::object callback) {
     argstrings.push_back(python::extract<std::string>(args[i])());
     argv.push_back(argstrings.back().c_str());
   }
-  // callback
   _pycb = callback;
 
   // initialize detector
@@ -66,10 +66,10 @@ void DetectorPy::finalize() {
   _active = false;
 }
 
-python::object DetectorPy::fork(Detector::tid_t parent, Detector::tid_t child) {
+ThreadStatePy DetectorPy::fork(Detector::tid_t parent, Detector::tid_t child) {
   Detector::tls_t tls;
   _det->fork(parent, child, &tls);
-  return python::object(ThreadStatePy{tls, _det.get()});
+  return ThreadStatePy{tls, _det.get()};
 }
 
 void DetectorPy::handle_race(const Detector::Race* r) {

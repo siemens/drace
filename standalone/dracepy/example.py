@@ -8,6 +8,9 @@
 #
 # SPDX-License-Identifier: MIT
 
+# This snippet shows how to use the python bindings
+# of DRace compatible race detector libraries
+
 import dracepy
 
 def on_race(a1, a2):
@@ -24,13 +27,10 @@ print('Detector: {}, version {}'.format(d.name(), d.version()))
 d.init([], on_race)
 t1 = d.fork(1,2)
 t2 = d.fork(1,3)
-# do some stuff
 t1.func_enter(42)
-
-# enforce race
 t1.write(0xDEAD, 0x42, 0)
 t1.func_exit()
-
+# enforce a race
 t2.write(0xBEEF, 0x42, 0)
 d.finalize()
 print('finished execution')

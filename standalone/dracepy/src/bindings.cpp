@@ -21,6 +21,8 @@
 #include "DetectorPy.h"
 #include "ThreadStatePy.h"
 
+using namespace dracepy;
+
 BOOST_PYTHON_MODULE(dracepy) {
   // clang-format off
   python::class_<DetectorPy, boost::noncopyable>(

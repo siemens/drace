@@ -1,7 +1,7 @@
 # Standalone
 
 This directory contains the standalone components of the DRace project.
-The DRACE_ENABLE_RUNTIME CMake flag can be set to `OFF`, if only this components shall be build. 
+The DRACE_ENABLE_RUNTIME CMake flag can be set to `OFF`, if only this components shall be build.
 
 ```bash
 # from DRace root directory
@@ -16,6 +16,7 @@ cmake --build .
 
 - Fasttrack (Standalone Version)
 - Binary Decoder
+- Python Bindings
 
 ### Fasttrack
 
@@ -25,6 +26,13 @@ For an example how to use this interface, have a look into the [unit tests](../t
 ### Binary Decoder
 
 Decodes a binary trace file which was created with the [TraceBinary](../drace-client/detectors/traceBinary/TraceBinary.cpp) detector of DRace and feeds the commands to a detector.
+
+### Python Bindings
+
+This component contains Python bindings of the detector interface.
+Using these, all detectors can be used from a Python program and can be explored interactively.
+
+An example how to use the bindings is provided in `dracepy/example.py`.
 
 ## Supported Environments
 
