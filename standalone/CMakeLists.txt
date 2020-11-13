@@ -32,6 +32,6 @@ else()
 endif()
 
 if(Python_FOUND AND Boost_FOUND)
-  message(STATUS "enable fasttrack python bindings")
-  add_subdirectory("detectors/fasttrackpy")
+  message(STATUS "enable detector python bindings")
+  add_subdirectory("dracepy")
 endif()

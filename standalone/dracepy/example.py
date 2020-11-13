@@ -8,14 +8,14 @@
 #
 # SPDX-License-Identifier: MIT
 
-import fasttrackpy
+import dracepy
 
 def on_race(a1, a2):
   print('Detector found a race:')
   print('  a1: tid: {}'.format(a1.thread_id))
   print('  a2: tid: {}'.format(a2.thread_id))
 
-d = fasttrackpy.Detector('fasttrack')
+d = dracepy.Detector('fasttrack')
 d.init('', on_race)
 t1 = d.fork(1,2)
 t2 = d.fork(1,3)
