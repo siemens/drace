@@ -84,6 +84,10 @@ class Detector {
    *
    * Takes command line arguments and a callback to process a data-race.
    * Type of callback is (const detector::Race*) -> void
+   *
+   * \note The lifetime of the argv pointers is allowed to end after returning
+   * from the function. Hence, child classes have to process or copy the values
+   * as they might only be valid during this function
    */
   virtual bool init(int argc, const char** argv, Callback rc_clb) = 0;
 
