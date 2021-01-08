@@ -1,15 +1,19 @@
+
+#ifndef VARSTATE_HEADER_H
+#define VARSTATE_HEADER_H 1
+#pragma once
+
 /*
  * DRace, a dynamic data race detector
  *
- * Copyright 2018 Siemens AG
+ * Copyright 2020 Siemens AG
  *
  * Authors:
  *   Felix Moessbauer <felix.moessbauer@siemens.com>
+ *   Mihai Robescu <mihai-gabriel.robescu@siemens.com>
  *
  * SPDX-License-Identifier: MIT
  */
-#ifndef VARSTATE_H
-#define VARSTATE_H
 
 #include <atomic>
 #include <memory>
@@ -26,48 +30,69 @@ class VarState {
   static constexpr uint32_t VAR_NOT_INIT = 0;
   static constexpr uint32_t READ_SHARED = -1;
 
-  // TODO: make these private and make setters & getters for it
-  /// local clock of last read
-  VectorClock<>::VC_ID _writeID{VAR_NOT_INIT};
-  // these are th_num (first 11 bits) + 21 bits epoch
+ private:
+  /// local clock of last write; this is th_num (first 11 bits) + 21 bits clock
+  /// value
+  VectorClock<>::VC_EPOCH write_epoch{VAR_NOT_INIT};
 
-  /// local clock of last read
-  VectorClock<>::VC_ID _readID{VAR_NOT_INIT};
+  /// local clock of last read; this is th_num (first 11 bits) + 21 bits clock
+  /// value
+  VectorClock<>::VC_EPOCH read_epoch{VAR_NOT_INIT};
 
+ public:
   VarState() = default;
 
   /// returns id of last write access
-  constexpr VectorClock<>::VC_ID GetWriteID() const { return _writeID; }
+  constexpr VectorClock<>::VC_EPOCH get_write_epoch() const {
+    return write_epoch;
+  }
 
   /// returns id of last read access (when read is not shared)
-  constexpr VectorClock<>::VC_ID GetReadID() const { return _readID; }
-
-  /// return tid of thread which last wrote this var
-  constexpr VectorClock<>::TID GetWriteThreadID() const {
-    return VectorClock<>::MakeThreadID(_writeID);
+  constexpr VectorClock<>::VC_EPOCH get_read_epoch() const {
+    return read_epoch;
   }
 
-  /// return tid of thread which last read this var, if not read shared
-  constexpr VectorClock<>::TID GetReadThreadID() const {
-    return VectorClock<>::MakeThreadID(_readID);
+  /// sets id of last write access
+  constexpr void set_write_epoch(VectorClock<>::VC_EPOCH epoch) {
+    write_epoch = epoch;
   }
 
-  constexpr VectorClock<>::Thread_Num GetWriteThreadNum() const {
-    return VectorClock<>::MakeThreadNum(_writeID);
+  /// sets id of last read access (when read is not shared)
+  constexpr void set_read_epoch(VectorClock<>::VC_EPOCH epoch) {
+    read_epoch = epoch;
   }
-  constexpr VectorClock<>::Thread_Num GetReadThreadNum() const {
-    return VectorClock<>::MakeThreadNum(_readID);
+
+  /// return tid of thread which last wrote to this memory location
+  constexpr VectorClock<>::TID get_write_thread_id() const {
+    return VectorClock<>::make_thread_id(write_epoch);
+  }
+
+  /// return tid of thread which last read this memory location, if not read
+  /// shared
+  constexpr VectorClock<>::TID get_read_thread_id() const {
+    return VectorClock<>::make_thread_id(read_epoch);
+  }
+
+  /// return thread number of thread which last read this memory location, if not read shared
+  constexpr VectorClock<>::ThreadNum get_write_thread_num() const {
+    return VectorClock<>::make_thread_num(write_epoch);
+  }
+
+  /// return thread number of thread which last wrote to this memory location,
+  /// if not read shared
+  constexpr VectorClock<>::ThreadNum get_read_thread_num() const {
+    return VectorClock<>::make_thread_num(read_epoch);
   }
 
   /// returns clock value of thread of last write access
-  constexpr VectorClock<>::Clock GetWriteClock() const {
-    return VectorClock<>::MakeClock(_writeID);
+  constexpr VectorClock<>::Clock get_write_clock() const {
+    return VectorClock<>::make_clock(write_epoch);
   }
 
   /// returns clock value of thread of last read access (returns 0 when read is
   /// shared)
-  constexpr VectorClock<>::Clock GetReadClock() const{
-    return VectorClock<>::MakeClock(_readID);
+  constexpr VectorClock<>::Clock get_read_clock() const {
+    return VectorClock<>::make_clock(read_epoch);
   }
 
   /// evaluates for write/write races through this and and access through t
@@ -82,28 +107,30 @@ class VarState {
 
   /// evaluates for read-shared/write races through this and and access through
   /// "t"
-  VectorClock<>::Thread_Num VarState::is_rw_sh_race(
-      ThreadState* t, xvector<VectorClock<>::VC_ID>* shared_vc) const;
+  VectorClock<>::ThreadNum VarState::is_rw_sh_race(
+      ThreadState* t, xvector<VectorClock<>::VC_EPOCH>* shared_vc) const;
 
   /// finds the entry with the th_num in the shared vectorclock
-  static std::vector<VectorClock<>::VC_ID>::iterator VarState::find_in_vec(
-      VectorClock<>::Thread_Num th_num,
-      xvector<VectorClock<>::VC_ID>*
+  static std::vector<VectorClock<>::VC_EPOCH>::iterator VarState::find_in_vec(
+      VectorClock<>::ThreadNum th_num,
+      xvector<VectorClock<>::VC_EPOCH>*
           shared_vc);  // made static as it does not depend on the VarState
                        // instance
 
   /// if in read_shared state, then returns id of position pos in vector clock
-  VectorClock<>::VC_ID VarState::get_sh_id(
-      uint32_t pos, xvector<VectorClock<>::VC_ID>* shared_vc) const;
+  VectorClock<>::VC_EPOCH VarState::get_sh_id(
+      uint32_t pos, xvector<VectorClock<>::VC_EPOCH>* shared_vc) const;
 
-  /// return stored clock value, which belongs to ThreadState t, 0 if not
+  /// return stored epoch (th_num + clock) value, which belongs to ThreadNum
+  /// th_num or 0 if not available
+  VectorClock<>::VC_EPOCH VarState::get_vc_by_th_num(
+      VectorClock<>::ThreadNum th_num,
+      xvector<VectorClock<>::VC_EPOCH>* shared_vc) const;
+
+  /// return stored clock value, which belongs to ThreadNum th_num or 0 if not
   /// available
-  VectorClock<>::VC_ID VarState::get_vc_by_th_num(
-      VectorClock<>::Thread_Num th_num,
-      xvector<VectorClock<>::VC_ID>* shared_vc) const;
-
   VectorClock<>::Clock VarState::get_clock_by_th_num(
-      VectorClock<>::Thread_Num th_num,
-      xvector<VectorClock<>::VC_ID>* shared_vc) const;
+      VectorClock<>::ThreadNum th_num,
+      xvector<VectorClock<>::VC_EPOCH>* shared_vc) const;
 };
 #endif  // !VARSTATE_H

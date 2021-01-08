@@ -1,5 +1,6 @@
-#ifndef _STACKTRACE_H_
-#define _STACKTRACE_H_
+#ifndef STACKTRACE_H
+#define STACKTRACE_H 1
+#pragma once
 /*
  * DRace, a dynamic data race detector
  *
@@ -14,13 +15,15 @@
 #include <ipc/spinlock.h>
 #include <parallel_hashmap/phmap.h>
 #include <boost/graph/adjacency_list.hpp>
-#include <list>
+#include <deque>
 
+//TODO: maybe create a common interface for all types of callstacks
 /**
  * \brief Implements a stack depot capable to store callstacks
  *        with references to particular nodes.
  */
 class StackTrace {
+ public:
   /// Store the address along with each vertex
   struct VertexProperty {
     size_t addr;
@@ -29,29 +32,27 @@ class StackTrace {
                                 VertexProperty>
       StackTree;
 
-  /// holds var_address, pc, stack_length
-  phmap::flat_hash_map<size_t, std::pair<size_t, StackTree::vertex_descriptor>>
-      _read_write;
-
+ private:
   /// holds to complete stack tree
   /// is needed to create the stack trace in case of a race
   /// leafs of the tree which do not have pointer pointing to them may be
   /// deleted
-  StackTree _local_stack;
+  StackTree local_stack;
 
   /// reference to the current stack element
-  StackTree::vertex_descriptor _ce;
+  StackTree::vertex_descriptor curr_elem;
 
   /// reference to the root element
-  StackTree::vertex_descriptor _root;
+  StackTree::vertex_descriptor root_node;
 
-  uint16_t _pop_count = 0;
+  uint16_t pop_count = 0;
 
-  mutable ipc::spinlock lock;
-
-  /// re-construct a stack-trace from a bottom node to the root
-  std::list<size_t> make_trace(
-      const std::pair<size_t, StackTree::vertex_descriptor>& data) const;
+  /**
+   * \note locking was moved to ThreadState
+   * \note Locking is necessary if and only if elements are removed from the
+   * tree. As long as no elements are removed locking is not necessary: mutable
+   * ipc::spinlock lock;
+   */
 
   /**
    * \brief cleanup unreferenced nodes in callstack tree
@@ -60,32 +61,26 @@ class StackTrace {
   void clean();
 
  public:
-  StackTrace() : _ce(boost::add_vertex({0}, _local_stack)), _root(_ce) {}
+  /// re-construct a stack-trace from a bottom node to the root
+  std::deque<size_t> make_trace(
+      const std::pair<size_t, StackTree::vertex_descriptor>& data) const;
+
+  StackTrace()
+      : curr_elem(boost::add_vertex({0}, local_stack)), root_node(curr_elem) {}
 
   /**
    * \brief pop the last element from the stack
    * \note precondition: stack is not empty
    * \note threadsafe
    */
-  void pop_stack_element();
+  void remove_function_element();
 
   /**
    * \brief push a new element to the stack depot
    * \note threadsafe
    */
-  void push_stack_element(size_t element);
+  void insert_function_element(size_t element);
 
-  /**
-   * when a var is written or read, it copies the stack and adds the pc of the
-   * r/w operation to be able to return the stack trace if a race was detected
-   * \note threadsafe
-   */
-  void set_read_write(size_t addr, size_t pc);
-
-  /**
-   * \brief returns a stack trace of a clock for handing it over to drace
-   * \note threadsafe
-   */
-  std::list<size_t> return_stack_trace(size_t address) const;
+  StackTree::vertex_descriptor get_current_element() const;
 };
 #endif

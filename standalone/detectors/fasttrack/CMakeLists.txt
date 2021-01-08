@@ -11,14 +11,14 @@
 set(FT_SOURCES
     "src/stacktrace"
     "src/varstate"
-    "src/MemoryPool.cpp"
+    "src/MemoryPool"
     "src/threadstate")
 
 set(FT_TEST_SOURCES
     "test/fasttrack_test"
     "src/stacktrace"
     "src/varstate"
-    "src/MemoryPool.cpp"
+    "src/MemoryPool"
     "src/threadstate")
 
 include(GenerateExportHeader)
@@ -78,9 +78,6 @@ if(Boost_FOUND)
 
     ################ configure test module ################
     if(BUILD_TESTING)
-        ##### add profiling parts #####
-        add_subdirectory("additional")
-
         # create library which is linked in global testing module
         add_executable(fasttrack_test ${FT_TEST_SOURCES})
         target_link_libraries(fasttrack_test PRIVATE gtest gtest_main "drace-common" "parallel-hashmap")

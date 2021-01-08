@@ -5,18 +5,15 @@
  *
  * Authors:
  *   Philip Harr <philip.harr@siemens.com>
+ *   Mihai Robescu <mihai-gabriel.robescu@siemens.com>
  *
  * SPDX-License-Identifier: MIT
  */
 
-#include "fasttrack_test.h"
 #include <fasttrack.h>
-
 #include <random>
 #include "gtest/gtest.h"
-
 #include "stacktrace.h"
-#include "stacktrie.h"
 
 using ::testing::UnitTest;
 
@@ -121,7 +118,7 @@ TEST(FasttrackTest, ComplexStackTrace) {
   ASSERT_EQ(vec1[4], 1004);
 }
 
-TEST(FasttrackTest, BetterComplexStackTrace) {
+TEST(FasttrackTest, MoreComplexStackTrace) {
   using namespace drace::detector;
   auto ft = std::make_unique<Fasttrack<std::mutex>>();
 
@@ -193,30 +190,6 @@ TEST(FasttrackTest, BetterComplexStackTrace) {
   ASSERT_EQ(vec_103[7], 0x6ull);
   ASSERT_EQ(vec_103[8], 0x3ull);
   ASSERT_EQ(vec_103[9], 0x1003ull);
-}
-
-TEST(FasttrackTest, stackInitializations) {
-  std::vector<std::shared_ptr<StackTrace>> vec;
-  std::list<size_t> stack;
-  for (int i = 0; i < 100; ++i) {
-    vec.push_back(std::make_shared<StackTrace>());
-  }
-
-  {
-    std::shared_ptr<StackTrace> cp = vec[78];
-    cp->push_stack_element(1);
-    cp->push_stack_element(2);
-    cp->push_stack_element(3);
-    cp->set_read_write(5, 4);
-    stack = cp->return_stack_trace(5);
-  }
-  vec[78]->pop_stack_element();
-  ASSERT_EQ(stack.size(), 4);  // TODO: validate
-  int i = 1;
-  for (auto it = stack.begin(); it != stack.end(); ++it) {
-    ASSERT_EQ(*(it), i);
-    i++;
-  }
 }
 
 TEST(FasttrackTest, Indicate_Write_Write_Race) {
@@ -353,8 +326,6 @@ TEST(FasttrackTest, Indicate_Shared_Read_Write_Race) {
   std::size_t addr = 0x42Full;
   using namespace drace::detector;
   auto ft = std::make_unique<Fasttrack<std::mutex>>();
-  // t1 and t2 read addr
-  // t3 tries to write to addr
 
   auto rc_clb = [](const Detector::Race* r) {
     ASSERT_EQ(r->first.stack_size, 1);
@@ -372,6 +343,8 @@ TEST(FasttrackTest, Indicate_Shared_Read_Write_Race) {
   ft->fork(0, 2, &tls[1]);  // t1
   ft->fork(0, 3, &tls[2]);  // t2
 
+  // t1 and t2 read addr
+  // t3 tries to write to addr
   ft->read(tls[0], (void*)0x5F3ull, (void*)addr, 16);
   ft->read(tls[1], (void*)0x5FFull, (void*)addr, 16);
   ft->write(tls[2], (void*)0x78Eull, (void*)addr, 16);
@@ -389,8 +362,6 @@ TEST(FasttrackTest, Drop_State_Indicate_Shared_Read_Write_Race) {
 
   using namespace drace::detector;
   auto ft = std::make_unique<Fasttrack<std::mutex>>();
-  // t1 and t2 read addr
-  // t3 tries to write to addr
 
   auto rc_clb = [](const Detector::Race* r) {};
   const char* argv_mock[] = {"ft_test", "--size", "2"};
@@ -404,7 +375,7 @@ TEST(FasttrackTest, Drop_State_Indicate_Shared_Read_Write_Race) {
   ft->read(tls[0], (void*)0x5F3ull, (void*)addr[0], 16);
   ft->read(tls[1], (void*)0x5FFull, (void*)addr[0], 16);
 
-  ft->clearVarState(addr[0]);
+  ft->clear_var_state(addr[0]);
 
   ft->write(tls[2], (void*)0x78Eull, (void*)addr[0], 16);
 
@@ -484,7 +455,7 @@ TEST(FasttrackTest, Write_Write_Race) {
   ft->finalize();
 }
 
-TEST(FasttrackTest, FullFtSimpleRace) {
+TEST(FasttrackTest, Full_Fasttrack_Simple_Race) {
   using namespace drace::detector;
 
   auto ft = std::make_unique<Fasttrack<std::mutex>>();
@@ -512,7 +483,7 @@ TEST(FasttrackTest, FullFtSimpleRace) {
   ft->finalize();
 }
 
-TEST(FasttrackTest, RaceAndStackTrace) {
+TEST(FasttrackTest, Fasttrack_Race_And_StackTrace) {
   using namespace drace::detector;
 
   auto ft = std::make_unique<Fasttrack<std::mutex>>();
@@ -577,5 +548,4 @@ TEST(FasttrackTest, RaceAndStackTrace) {
   ft->func_enter(tls[1], (void*)0x70ull);
   // here, we expect the race. Handled in callback
   ft->finalize();
-  // __debugbreak();
 }

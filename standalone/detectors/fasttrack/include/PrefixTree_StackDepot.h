@@ -2,21 +2,34 @@
 #define PREFIXTREE_STACKDEPOT_HEADER_H 1
 #pragma once
 
+/*
+ * DRace, a dynamic data race detector
+ *
+ * Copyright 2020 Siemens AG
+ *
+ * Authors:
+ *   Mihai Robescu <mihai-gabriel.robescu@siemens.com>
+ *   Felix Moessbauer <felix.moessbauer@siemens.com>
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include <ipc/spinlock.h>
 #include <deque>
-#include "parallel_hashmap/phmap.h"
-
-#include <PoolAllocator.h>
-
 #include <iostream>
 #include <memory>
+#include "PoolAllocator.h"
+#include "parallel_hashmap/phmap.h"
 
-//---------------------------------------------------------------------
-// Implementation of a Prefix Tree for being able to reproduce call
-// stacks. Works, it is faster on single-thread, however, because
-// memory allocations under DynamoRIO are very costly, they really
-// slow down the execution, as the hash maps need to reallocate
-//---------------------------------------------------------------------
+/**
+ *------------------------------------------------------------------------------
+ *
+ * Header File that provides the initial implementation of a Prefix
+ * Tree for being able to store call stacks. Check "PrefixTreeDepot.h" for a
+ * cache efficient implementation
+ *
+ *------------------------------------------------------------------------------
+ */
 
 typedef struct TrieNode {
   size_t pc = -1;
@@ -28,12 +41,13 @@ typedef struct TrieNode {
 
 class TrieStackDepot {
   TrieNode* _curr_elem = nullptr;
+
  public:
-  TrieNode* GetCurrentElement() { return _curr_elem; }
+  TrieNode* get_current_element() { return _curr_elem; }
 
   void InsertFunction(size_t pc) {
     if (_curr_elem == nullptr) {
-      // TODO: using new is slow => PoolAllocator
+      // using new is slow => PoolAllocator in "PrefixTreeDepot.h"
       _curr_elem = new TrieNode();
       _curr_elem->parent = nullptr;
       _curr_elem->pc = pc;
@@ -57,15 +71,16 @@ class TrieStackDepot {
 
     if (_curr_elem->parent == nullptr) {  // exiting the root function
       // delete _curr_elem; !! MEMORY IS NEVER FREED DOING THIS
-      // as there can be still slements pointing to it
+      // as there can be still slements pointing to it;
+      // TODO: remove all elements pointing to it as well
       _curr_elem = nullptr;
       return;
     }
-
     _curr_elem = _curr_elem->parent;
   }
 
-  std::deque<size_t> MakeTrace(const std::pair<size_t, TrieNode*>& data) const {
+  std::deque<size_t> make_trace(
+      const std::pair<size_t, TrieNode*>& data) const {
     std::deque<size_t> this_stack;
     this_stack.emplace_front(data.first);
 

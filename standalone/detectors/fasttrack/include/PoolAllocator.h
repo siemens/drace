@@ -2,12 +2,35 @@
 #define POOL_ALLOCATOR_HEADER_H 1
 #pragma once
 
+/*
+ * DRace, a dynamic data race detector
+ *
+ * Copyright 2020 Siemens AG
+ *
+ * Authors:
+ *   Mihai Robescu <mihai-gabriel.robescu@siemens.com>
+ *   Felix Moessbauer <felix.moessbauer@siemens.com>
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 #include <iostream>
 #include <limits>
 
 #include <ipc/spinlock.h>
 #include "MemoryPool.h"
-#include "prof.h"
+
+/**
+ *------------------------------------------------------------------------------
+ *
+ * Header File implementing a pool allocator. It can also be used
+ * in combination with the Segregator class, such as on line 136.
+ *
+ * There is also a thread-safe version. This is currently only
+ * experimental
+ *
+ *------------------------------------------------------------------------------
+ */
 
 template <class T, int threshold, class SmallAllocator, class LargeAllocator>
 class Segregator {
@@ -45,8 +68,6 @@ class Segregator {
 
 template <typename T, size_t numChunks = 512>
 class PoolAllocator {
-  // ipc::spinlock g_PoolAllocatorLock;
-
  public:
   using value_type = T;
   using size_type = size_t;
@@ -62,16 +83,14 @@ class PoolAllocator {
   size_type max_size() const { return std::numeric_limits<size_type>::max(); }
 
   static pointer allocate() {
-    // std::lock_guard<ipc::spinlock> lg(g_PoolAllocatorLock);
     return reinterpret_cast<pointer>(mem_pool.allocate());
   }
 
   static void deallocate(void* ptr) {
-    // std::lock_guard<ipc::spinlock> lg(g_PoolAllocatorLock);
     mem_pool.deallocate(ptr);
   }
 
-  void usedMemory() { mem_pool.printUsedMemory(); }
+  void usedMemory() { mem_pool.print_used_memory(); }
 
   template <class U>
   PoolAllocator(const PoolAllocator<U, numChunks>& other) {}
@@ -102,7 +121,7 @@ class SizePoolAllocator {
 
   static void deallocate(void* ptr) { mem_pool.deallocate(ptr); }
 
-  static void usedMemory() { mem_pool.printUsedMemory(); }
+  static void usedMemory() { mem_pool.print_used_memory(); }
 
  private:
   static MemoryPool mem_pool;
@@ -122,18 +141,14 @@ using DRaceAllocator = Segregator<
                                   Segregator<T, 1025, SizePoolAllocator<1024>,
                                              std::allocator<T>>>>>>>;
 
-// struct Chunk {
-//   Chunk* next;  // pointer to the next Chunk, when chunk is free
-// };
-
 template <typename T, size_t numChunks = 512>
 class ThreadSafePoolAllocator {
  private:
-  std::atomic<Chunk*> _FreePointer{nullptr};    // pointer to the first free
-   size_t _numChunks = numChunks;        // number of chunks in a block
-  size_t _chunkSize = sizeof(T);                // chunk size equivalent
-  size_t _blockSize = _numChunks * _chunkSize;  // block size
-  size_t _chunks_allocated = 0;  // how much memory was allocated until now
+  std::atomic<Chunk*> free_pointer{nullptr};    // pointer to the first free
+  size_t num_chunks = numChunks;                // number of chunks in a block
+  size_t chunk_size = sizeof(T);                // chunk size equivalent
+  size_t block_size = num_chunks * chunk_size;  // block size
+  size_t chunks_allocated = 0;  // how much memory was allocated until now
 
  public:
   using value_type = T;
@@ -150,33 +165,23 @@ class ThreadSafePoolAllocator {
   size_type max_size() const { return std::numeric_limits<size_type>::max(); }
 
   pointer allocate() {
-    PRINT_TID();
-    DEB_FUNCTION();  // REMOVE_ME
-    SLEEP_THREAD();
-
-    // std::lock_guard<ipc::spinlock> lg(g_memPoolLock);
-    if (_FreePointer.load(std::memory_order_release) == nullptr) {
-      // std::lock_guard<ipc::spinlock> lg(g_PoolAllocatorLock);
-      _FreePointer.store(getMoreMemory(), std::memory_order_acquire);
+    if (free_pointer.load(std::memory_order_release) == nullptr) {
+      free_pointer.store(get_more_memory(), std::memory_order_acquire);
     }
     // now we can for sure allocate all the objects.
-    Chunk* allocated = _FreePointer.load(std::memory_order_release);
-    _FreePointer.store(_FreePointer.load(std::memory_order_release),
-                       std::memory_order_relaxed);
-    _chunks_allocated++;
+    Chunk* allocated = free_pointer.load(std::memory_order_release);
+    free_pointer.store(free_pointer.load(std::memory_order_release),
+                       std::memory_order_acquire);
+    chunks_allocated++;
     return reinterpret_cast<pointer>(allocated);
   }
 
-  Chunk* getMoreMemory() {
-    PRINT_TID();
-    DEB_FUNCTION();  // REMOVE_ME
-    SLEEP_THREAD();
-
-    Chunk* start = reinterpret_cast<Chunk*>(operator new(_blockSize));
+  Chunk* get_more_memory() {
+    Chunk* start = reinterpret_cast<Chunk*>(operator new(block_size));
     Chunk* it = start;
-    for (size_t i = 0; i < _numChunks - 1; ++i) {
+    for (size_t i = 0; i < num_chunks - 1; ++i) {
       it->next =
-          reinterpret_cast<Chunk*>(reinterpret_cast<char*>(it) + _chunkSize);
+          reinterpret_cast<Chunk*>(reinterpret_cast<char*>(it) + chunk_size);
       it = it->next;
     }
     it->next = nullptr;
@@ -184,14 +189,10 @@ class ThreadSafePoolAllocator {
   }
 
   void deallocate(void* ptr) {
-    PRINT_TID();
-    DEB_FUNCTION();  // REMOVE_ME
-    SLEEP_THREAD();
-
     Chunk* c = reinterpret_cast<Chunk*>(ptr);
-    c->next = _FreePointer.load(std::memory_order_release);
-    _FreePointer.store(c, std::memory_order_acquire);
-    _chunks_allocated--;
+    c->next = free_pointer.load(std::memory_order_release);
+    free_pointer.store(c, std::memory_order_acquire);
+    chunks_allocated--;
   }
 };
 

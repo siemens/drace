@@ -1,18 +1,41 @@
+
 #ifndef TREEDEPOT_HEADER_H
 #define TREEDEPOT_HEADER_H 1
 #pragma once
 
-#include <memory>
+/*
+ * DRace, a dynamic data race detector
+ *
+ * Copyright 2020 Siemens AG
+ *
+ * Authors:
+ *   Mihai Robescu <mihai-gabriel.robescu@siemens.com>
+ *   Felix Moessbauer <felix.moessbauer@siemens.com>
+ *
+ * SPDX-License-Identifier: MIT
+ */
 
+#include <deque>
+#include <memory>
 #include "PoolAllocator.h"
-#include "prof.h"
+
+/**
+ *------------------------------------------------------------------------------
+ *
+ * Header File that implements a prefix tree data structure to
+ * store call stack elements. This is one is optimized to be
+ * cache efficient, making each node a multiple of the size of the
+ * cache line
+ *
+ *------------------------------------------------------------------------------
+ */
 
 class INode {
  public:
   size_t pc = -1;           // 8 bytes
   INode* parent = nullptr;  // 8 bytes
 
-  virtual INode* FastCheck(size_t pc) const {
+  virtual INode* fast_check(size_t pc) const {
     throw std::runtime_error("Not implemented");
     return nullptr;
   }
@@ -24,16 +47,16 @@ class INode {
 
   virtual ~INode() {}
 
-  virtual bool AddChildNode(INode* next, size_t pc) {
+  virtual bool add_child_node(INode* next, size_t pc) {
     throw std::runtime_error("Not implemented");
     return 1;
   }
 
-  virtual void ChangeChildNode(INode* tmp, INode* _curr_elem) {
+  virtual void change_child_node(INode* tmp, INode* _curr_elem) {
     throw std::runtime_error("Not implemented");
   }
 
-  virtual void ChangeParentNode(INode* tmp) {
+  virtual void change_parent_node(INode* tmp) {
     throw std::runtime_error("Not implemented");
   }
 };
@@ -59,9 +82,9 @@ class Node : public INode {
     }
   }
 
-  size_t size() const override { return N; }
+  size_t size() const final { return N; }
 
-  INode* FastCheck(size_t pc) const override {
+  INode* fast_check(size_t pc) const final {
     for (int i = 0; i < N; ++i) {
       if (child_values[i] == pc) {
         return child_nodes[i];
@@ -70,7 +93,7 @@ class Node : public INode {
     return nullptr;
   }
 
-  bool AddChildNode(INode* next, size_t pc) override {
+  bool add_child_node(INode* next, size_t pc) final {
     for (int i = 0; i < N; ++i) {
       if (child_values[i] == -1) {
         child_values[i] = pc;
@@ -81,7 +104,7 @@ class Node : public INode {
     return false;
   }
 
-  void ChangeChildNode(INode* tmp, INode* _curr_elem) override {
+  void change_child_node(INode* tmp, INode* _curr_elem) final {
     for (int i = 0; i < N; ++i) {
       if (child_nodes[i] == _curr_elem) {
         child_nodes[i] = tmp;
@@ -90,7 +113,7 @@ class Node : public INode {
     }  // replace new pointer in the parent list
   }
 
-  void ChangeParentNode(INode* tmp) override {
+  void change_parent_node(INode* tmp) final {
     for (int i = 0; i < N; ++i) {
       child_nodes[i]->parent = tmp;
     }
@@ -101,15 +124,15 @@ template <class T>
 class SelectAllocator {
  public:
   static constexpr int threshold1 = 2;
-  using Allocator1 = PoolAllocator<Node<threshold1>, 4096>;
+  using Allocator1 = PoolAllocator<Node<threshold1>, 8192>;
   static constexpr int threshold2 = 6;
-  using Allocator2 = PoolAllocator<Node<threshold2>, 1024>;
+  using Allocator2 = PoolAllocator<Node<threshold2>, 4096>;
   static constexpr int threshold3 = 10;
-  using Allocator3 = PoolAllocator<Node<threshold3>, 16>;
+  using Allocator3 = PoolAllocator<Node<threshold3>, 64>;
   static constexpr int threshold4 = 38;
-  using Allocator4 = PoolAllocator<Node<threshold4>, 16>;
+  using Allocator4 = PoolAllocator<Node<threshold4>, 64>;
   static constexpr int threshold5 = 198;
-  using Allocator5 = PoolAllocator<Node<threshold5>, 16>;
+  using Allocator5 = PoolAllocator<Node<threshold5>, 32>;
   static constexpr int threshold6 = 1000;
   using LargeAllocator = std::allocator<Node<threshold6>>;
 
@@ -161,36 +184,20 @@ class SelectAllocator {
 };
 
 using Allocator = SelectAllocator<INode>;
-extern ipc::spinlock _read_write_lock;
+extern ipc::spinlock read_write_lock;
 
 class TreeDepot {
   INode* _curr_elem = nullptr;
   Allocator al;
 
  public:
-  INode* GetCurrentElement() {
+  INode* get_current_element() {
     // std::lock_guard<ipc::spinlock> lg(_read_write_lock);
     return _curr_elem;
-
-    // // DEB_FUNCTION();  // REMOVE_ME
-    // if (_curr_elem) {
-    //   // PRINT_TID();
-    //   // newline();
-    //   // SLEEP_THREAD();
-    //   return _curr_elem;
-    // } else {
-    //   // PRINT_TID();
-    //   //printf("Not logical value at line number %d in file %s\n", __LINE__,
-    //   //       __FILE__);
-    //   return nullptr;
-    // }
   }
 
-  void InsertFunction(size_t pc) {
-    std::lock_guard<ipc::spinlock> lg(_read_write_lock);
-
-    // PRINT_TID();
-    // DEB_FUNCTION();  // REMOVE_ME
+  void insert_function_element(size_t pc) {
+    std::lock_guard<ipc::spinlock> lg(read_write_lock);
 
     if (_curr_elem == nullptr) {
       // the root function has to be called with a big size
@@ -203,7 +210,7 @@ class TreeDepot {
     if (pc == _curr_elem->pc) return;  // done for recursive functions;
     // no need to use more nodes for same function
 
-    INode* next = _curr_elem->FastCheck(pc);
+    INode* next = _curr_elem->fast_check(pc);
     if (next) {
       _curr_elem = next;
       return;
@@ -211,7 +218,7 @@ class TreeDepot {
       next = al.allocate(1);
       next->pc = pc;
       next->parent = _curr_elem;
-      if (_curr_elem->AddChildNode(next, pc)) {
+      if (_curr_elem->add_child_node(next, pc)) {
         _curr_elem = next;
         return;
       }
@@ -223,27 +230,24 @@ class TreeDepot {
                          // assignment operator
     INode* parent = _curr_elem->parent;
     if (parent) {
-      parent->ChangeChildNode(tmp, _curr_elem);
+      parent->change_child_node(tmp, _curr_elem);
     }
     // replace so that children of current node point to the new value
-    _curr_elem->ChangeParentNode(tmp);
+    _curr_elem->change_parent_node(tmp);
 
-    // TODO: MUST replace it too in ThreadState::_read_write
+    // TODO: MUST replace it too in ThreadState::read_write
     // Allocator::deallocate(_curr_elem, _curr_elem->size() - 1);
 
     _curr_elem = tmp;
     next->parent = _curr_elem;
 
     // we already know that here we can go to the end.
-    _curr_elem->AddChildNode(next, pc);
+    _curr_elem->add_child_node(next, pc);
     _curr_elem = next;
   }
 
-  void ExitFunction() {
-    std::lock_guard<ipc::spinlock> lg(_read_write_lock);
-
-    // PRINT_TID();
-    // DEB_FUNCTION();  // REMOVE_ME
+  void remove_function_element() {
+    std::lock_guard<ipc::spinlock> lg(read_write_lock);
 
     if (_curr_elem == nullptr) return;  // func_exit before func_enter
 
@@ -256,10 +260,8 @@ class TreeDepot {
     _curr_elem = _curr_elem->parent;
   }
 
-  std::deque<size_t> MakeTrace(const std::pair<size_t, INode*>& data) const {
-    std::lock_guard<ipc::spinlock> lg(_read_write_lock);
-
-    // DEB_FUNCTION();  // REMOVE_ME
+  std::deque<size_t> make_trace(const std::pair<size_t, INode*>& data) const {
+    std::lock_guard<ipc::spinlock> lg(read_write_lock);
 
     std::deque<size_t> this_stack;
     this_stack.emplace_front(data.first);
