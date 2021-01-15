@@ -49,7 +49,7 @@ class VectorClock {
   /// returns the no. of elements of the vector clock
   constexpr size_t get_length() { return vc.size(); }
 
-  Clock get_min_clock() {
+  Clock get_min_clock() const {
     Clock min_clock = -1;
     auto it = this->vc.begin();
     auto it_end = this->vc.end();

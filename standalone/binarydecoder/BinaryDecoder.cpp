@@ -46,9 +46,6 @@ int main(int argc, char** argv) {
     std::vector<ipc::event::BufferEntry> buffer(
         (size_t)(size / sizeof(ipc::event::BufferEntry)));
 
-    // ipc::event::BufferEntry buf;
-    // int i = 0;
-
     __debugbreak();
     DetectorOutput output(detec.c_str());
     if (in_file.read((char*)(buffer.data()), size).good()) {

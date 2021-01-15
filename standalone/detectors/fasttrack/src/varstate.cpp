@@ -68,6 +68,7 @@ std::vector<VectorClock<>::VC_EPOCH>::iterator VarState::find_in_vec(
   auto it_end = shared_vc->end();
   for (; it != it_end; ++it) {
     if (VectorClock<>::make_thread_num(*it) == th_num) {
+
       return it;
     }
   }

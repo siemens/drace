@@ -74,6 +74,27 @@ class Fasttrack : public Detector {
   bool log_flag = true;
   bool final_output = (true && log_flag);
 
+  // TODO: Variables should be defined via an external framework
+  /// flags that specify if memory should be capped by removing memory addresses
+  /// and the policy to be used for the removal.
+  bool flag_remove_memory_adresses = false;
+
+  /**
+   * \note flag_remove_retired_memory_addresses should be true by default
+   */
+  bool flag_remove_retired_memory_addresses =
+      (true && flag_remove_memory_adresses);
+  bool flag_remove_by_prunning_hash_map =
+      (false && flag_remove_memory_adresses);
+  bool flag_remove_random_memory_addresses =
+      (true && flag_remove_memory_adresses);
+  bool flag_remove_by_lowest_clock = (false && flag_remove_memory_adresses);
+
+  /// Represents the number of memory addresses that a user wants to store. In
+  /// close correlation with the capped memory usage of the tool
+  std::size_t vars_size =
+      50000;  // TODO: optimal threshold; also to be defined by the user.
+
   /**
    * \note shared_vcs maps an address to the status of read_shared. we use node,
    * because while an address has a pointer, another one may add to the HashMap,
@@ -143,7 +164,11 @@ class Fasttrack : public Detector {
     thr->set_read_write((size_t)addr, reinterpret_cast<size_t>(pc));
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((size_t)addr)]);
-
+      if (flag_remove_memory_adresses) {
+        if (vars.size() >= vars_size) {
+          remove_memory_addresses();
+        }
+      }
       // finds the VarState instance of a specific addr or creates it
       auto it = vars.find((size_t)addr);
       if (it == vars.end()) {
@@ -162,6 +187,11 @@ class Fasttrack : public Detector {
 
     {  // lock on the address
       std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((size_t)addr)]);
+      if (flag_remove_memory_adresses) {
+        if (vars.size() >= vars_size) {
+          remove_memory_addresses();
+        }
+      }
 
       // finds the VarState instance of a specific addr or creates it
       auto it = vars.find((size_t)addr);
@@ -625,6 +655,9 @@ class Fasttrack : public Detector {
    * written for the first time) \note Invariant: vars table is locked
    */
   inline auto create_var(size_t addr) {
+    if (log_flag) {
+      log_count.no_allocatedVarStates++;
+    }
     return vars.emplace(addr, VarState()).first;
   }
 
@@ -678,6 +711,10 @@ class Fasttrack : public Detector {
       if (strcmp(argv[processed], "--stats") == 0) {
         log_flag = true;
       }
+      if (strcmp(argv[processed], "--size") == 0) {
+        processed++;
+        vars_size = std::stoi(argv[processed]);
+      }
       ++processed;
     }
   }
@@ -699,6 +736,233 @@ class Fasttrack : public Detector {
 
       for (auto it = happens_states.begin(); it != happens_states.end(); ++it) {
         it->second.delete_vc(th_num);
+      }
+    }
+    if (flag_remove_memory_adresses) {
+      remove_memory_addresses_of_finishing_thread(th_num);
+    }
+  }
+
+  /**
+   * \brief depending on the initialized flags is called in \ref read() or in
+   * \ref write(); It is used to limit memory consumption by removing memory
+   * addresses from tracking
+   */
+  inline void remove_memory_addresses() {
+    if (flag_remove_retired_memory_addresses) {
+      static uint32_t should_call = 1;
+      static uint32_t consider_useless = 1;
+      if (should_call >= consider_useless) {
+        VectorClock<>::Clock tmp =
+            remove_retired_memory_addresses(last_min_th_clock);
+        if (last_min_th_clock == tmp) {
+          consider_useless *= 2;
+        } else {
+          last_min_th_clock = tmp;
+          consider_useless = 1;
+        }
+        should_call = 1;
+        return;
+      } else {
+        should_call++;
+      }
+    }
+    if (flag_remove_by_prunning_hash_map) {
+      // the mask depends on the number of SubMaps of vars
+      static constexpr size_t mask = (1 << vars_number_of_sub_maps) - 1;
+      static size_t index = 0;
+      vars.dropSubMap((index & mask));
+      for (auto it = threads.begin(); it != threads.end(); ++it) {
+        // as there is no randomness same SubMap is dropped.
+        it->second->read_write.dropSubMap((index & mask));
+      }
+      index++;
+      if (log_flag) {
+        log_count.dropSubMap_calls++;
+      }
+      return;
+    }
+    if (flag_remove_random_memory_addresses) {
+      remove_random_memory_addresses();
+      return;
+    }
+    if (flag_remove_by_lowest_clock) {
+      remove_memory_addresses_by_lowest_clock();
+      return;
+    }
+  }
+
+  /// removes memory addresses of a joined or finished thread.
+  void remove_memory_addresses_of_finishing_thread(
+      VectorClock<>::ThreadNum th_num) {
+    auto it = vars.begin();
+    while (it != vars.end()) {
+      if (VectorClock<>::make_thread_num(it->second.get_read_epoch()) ==
+              th_num &&
+          VectorClock<>::make_thread_num(it->second.get_read_epoch()) ==
+              th_num) {  // the memory address was accessed only by this thread
+        auto tmp = it;
+        it++;
+        vars.erase(tmp);
+        if (log_flag) {
+          log_count.no_VarStates_Of_Thread_removed++;
+        }
+      } else if (VectorClock<>::make_thread_num(it->second.get_write_epoch()) ==
+                 th_num) {
+        it->second.set_write_epoch(VarState::VAR_NOT_INIT);
+        it++;
+        continue;
+      } else if (VectorClock<>::make_thread_num(it->second.get_read_epoch()) ==
+                 th_num) {
+        it->second.set_read_epoch(VarState::VAR_NOT_INIT);
+        it++;
+        continue;
+      } else {
+        it++;
+      }
+    }
+  }
+
+  /// removes memory addresses that are no longer relevant to the detection
+  VectorClock<>::Clock remove_retired_memory_addresses(
+      VectorClock<>::Clock last_min_th_clock) {
+    if (log_flag) {
+      log_count.remove_retired_memory_addresses_calls++;
+    }
+    VectorClock<>::Clock min_th_clock = -1;
+    {
+      std::lock_guard<LockT> exLockT(g_lock);
+      for (auto it = threads.begin(); it != threads.end(); ++it) {
+        VectorClock<>::Clock tmp = -1;
+        if (threads.size() > it->second->get_length()) {
+          tmp = 0;
+        } else {
+          tmp = it->second->get_min_clock();
+        }
+        if (tmp < min_th_clock) {
+          min_th_clock = tmp;
+        }
+      }
+    }
+
+    if (min_th_clock == last_min_th_clock) return min_th_clock;
+
+    auto it = vars.begin();
+    while (it != vars.end()) {
+      if (min_th_clock > it->second.get_write_clock() &&
+          (min_th_clock > it->second.get_read_clock() ||
+           it->second.get_read_epoch() == VarState::READ_SHARED)) {
+        // if the VarState is in read_shared, it can be removed
+        auto tmp = it;
+        it++;
+        for (auto threads_it = threads.begin(); threads_it != threads.end();
+             ++threads_it) {
+          auto read_write_it = threads_it->second->read_write.find(it->first);
+          if (read_write_it != threads_it->second->read_write.end()) {
+            threads_it->second->read_write.erase(read_write_it);
+          }
+        }
+        vars.erase(tmp);
+
+        if (log_flag) {
+          log_count.num_retired_memory_adresses_removed++;
+        }
+      } else {
+        it++;
+      }
+    }
+
+    return min_th_clock;
+  }
+
+  /// removes memory addresses by choosing every 3 a random one to remove
+  void remove_random_memory_addresses() {
+    if (log_flag) {
+      log_count.remove_random_memory_addresses_calls++;
+    }
+
+    auto it = vars.begin();
+    // number of VarStates to consider at once for choosing
+    int no_VarStates = 4;
+    std::size_t pos = 0;
+    std::size_t vsize = vars.size();
+
+    auto now = std::chrono::high_resolution_clock::now();
+    auto ms = std::chrono::time_point_cast<std::chrono::milliseconds>(now)
+                  .time_since_epoch()
+                  .count();
+    std::mt19937 mt{(unsigned int)ms};
+    std::uniform_int_distribution<int> dist(0, no_VarStates - 1);
+
+    while (pos < vsize - 1) {
+      std::size_t random = dist(mt);
+      // TODO: needs adjustment, the threshold. might be too low
+      pos += random;
+      if (pos > vsize - 1) break;
+
+      std::advance(it, random);  // might skip vars.end();
+                                 // this is why we have the pos
+
+      // remove the variable, we don't care if it is read_shared or not
+      auto random_it = it;
+      pos++;
+      if (pos <= vsize - 1) {
+        it++;
+      }
+      for (auto threads_it = threads.begin(); threads_it != threads.end();
+           ++threads_it) {
+        auto read_write_it =
+            threads_it->second->read_write.find(random_it->first);
+        if (read_write_it != threads_it->second->read_write.end()) {
+          threads_it->second->read_write.erase(read_write_it);
+        }
+      }
+      vars.erase(random_it);
+
+      if (log_flag) {
+        log_count.num_random_memory_addresses_removed++;
+      }
+    }
+  }
+
+  /// removes memory addresses by choosing every 3 the one with the lowest clock
+  void remove_memory_addresses_by_lowest_clock() {
+    if (log_flag) {
+      log_count.remove_memory_addresses_by_lowest_clock_calls++;
+    }
+
+    auto it = vars.begin();
+    std::size_t pos = 0;
+    VectorClock<>::Clock min_clock = -1;
+    auto remove_it = it;
+
+    while (it != vars.end()) {
+      // gather data from 3 variables and remove the one with the lowest clock.
+      if (it->second.get_write_clock() < min_clock) {
+        remove_it = it;
+        min_clock = it->second.get_write_clock();
+      }
+      it++;
+      pos++;
+      if (pos == 3) {  // 5 would be way too small. only e.g. 2000/10000 removed
+        pos = 0;
+
+        for (auto threads_it = threads.begin(); threads_it != threads.end();
+             ++threads_it) {
+          auto read_write_it =
+              threads_it->second->read_write.find(remove_it->first);
+          if (read_write_it != threads_it->second->read_write.end()) {
+            threads_it->second->read_write.erase(read_write_it);
+          }
+        }
+
+        vars.erase(remove_it);
+        remove_it = it;
+        min_clock = -1;
+
+        if (log_flag) {
+          log_count.no_Useful_VarStates_removed++;
+        }
       }
     }
   }
@@ -724,6 +988,15 @@ class Fasttrack : public Detector {
     uint32_t rw_sh_race = 0;
     uint32_t ww_race = 0;
     uint32_t rw_ex_race = 0;
+    uint32_t remove_retired_memory_addresses_calls = 0;
+    uint32_t remove_random_memory_addresses_calls = 0;
+    uint32_t remove_memory_addresses_by_lowest_clock_calls = 0;
+    uint32_t no_Useful_VarStates_removed = 0;
+    uint32_t num_retired_memory_adresses_removed = 0;
+    uint32_t num_random_memory_addresses_removed = 0;
+    uint32_t no_allocatedVarStates = 0;
+    uint32_t dropSubMap_calls = 0;
+    uint32_t no_VarStates_Of_Thread_removed = 0;
   } log_count;
 
   /// print statistics about rule-hits
@@ -777,6 +1050,31 @@ class Fasttrack : public Detector {
     std::cout << "====----------- FASTTRACK_DETAILS: Values are absolute! "
                  "-----------===="
               << std::endl;
+    std::cout << "vars_size: " << vars_size << std::endl;
+    std::cout << "remove_retired_memory_addresses calls: "
+              << log_count.remove_retired_memory_addresses_calls << std::endl;
+    std::cout << "remove_random_memory_addresses calls: "
+              << log_count.remove_random_memory_addresses_calls << std::endl;
+    std::cout << "remove_memory_addresses_by_lowest_clock calls: "
+              << log_count.remove_memory_addresses_by_lowest_clock_calls
+              << std::endl;
+    std::cout << "dropSubMap_calls calls: " << log_count.dropSubMap_calls
+              << std::endl;
+    std::cout << "no_Useful_VarStates_removed: "
+              << log_count.no_Useful_VarStates_removed << std::endl;
+    std::cout << "num_retired_memory_adresses_removed: "
+              << log_count.num_retired_memory_adresses_removed << std::endl;
+    std::cout << "num_random_memory_addresses_removed: "
+              << log_count.num_random_memory_addresses_removed << std::endl;
+    std::cout << "no_VarStates_Of_Thread_removed: "
+              << log_count.no_VarStates_Of_Thread_removed << std::endl;
+    std::cout << "number of allocated VarStates: "
+              << log_count.no_allocatedVarStates << std::endl;
+    std::cout << "wr_race: " << log_count.wr_race << std::endl;
+    std::cout << "rw_sh_race: " << log_count.rw_sh_race << std::endl;
+    std::cout << "ww_race: " << log_count.ww_race << std::endl;
+    std::cout << "rw_ex_race: " << log_count.rw_ex_race << std::endl;
+    std::cout << std::endl;
   }
 
   // helper funtion for a unit_test
