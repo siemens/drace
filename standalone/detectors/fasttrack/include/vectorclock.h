@@ -12,7 +12,6 @@
  *
  * SPDX-License-Identifier: MIT
  */
-
 #include "parallel_hashmap/phmap.h"
 
 /**
