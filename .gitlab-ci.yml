@@ -11,7 +11,7 @@
 variables:
   PROJECT_NAME: "DRace"
   GIT_SUBMODULE_STRATEGY: "normal"
-  DR_VERSION: "8.0.18373"
+  DR_VERSION: "8.0.18640"
   DR_ABI: "8.0"
   _NT_SYMBOL_PATH: "SRV*c:\\symbolcache\\*https://msdl.microsoft.com/download/symbols"
   http_proxy: $CODE_PROXY
