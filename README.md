@@ -38,17 +38,17 @@ drrun.exe -no_follow_children -c drace-client.dll <detector parameter> -- applic
 
 ```
 SYNOPSIS
-        drace-client.dll [-c <config>] [-d <detector>] [-s <sample-rate>] [-i <instr-rate>] [--lossy
-                         [--lossy-flush]] [--excl-traces] [--excl-stack] [--excl-master] [--stacksz
-                         <stacksz>] [--no-annotations] [--delay-syms] [--suplevel <level>]
-                         [--sup-races <sup-races>] [--xml-file <filename>] [--out-file <filename>]
-                         [--logfile <filename>][--extctrl] [--brkonrace] [--stats] [--version] [-h]
-                         [--heap-only]
+        drace-client.dll [-c <config>] [-d <detector> [<detector-options>]...] [-s <sample-rate>]
+                         [-i <instr-rate>] [--lossy [--lossy-flush]] [--excl-traces] [--excl-stack]
+                         [--excl-master] [--stacksz <stacksz>] [--no-annotations] [--delay-syms]
+                         [--suplevel <level>] [--sup-races <sup-races>] [--xml-file <filename>]
+                         [--out-file <filename>] [--logfile <filename>] [--extctrl] [--brkonrace]
+                         [--stats] [--version] [-h] [--heap-only]
 OPTIONS
         DRace Options
             -c, --config <config>
                     config file (default: drace.ini)
-            -d, --detector <detector>
+            -d, --detector <detector> <detector-options>
                     race detector (default: tsan)
             sampling options
                 -s, --sample-rate <sample-rate>

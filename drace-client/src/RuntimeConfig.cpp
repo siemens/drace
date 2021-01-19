@@ -62,7 +62,8 @@ void RuntimeConfig::parse_args(int argc_, const char **argv_) {
   auto drace_cli = clipp::group(
       (clipp::option("-c", "--config") & clipp::value("config", config_file)) %
           ("config file (default: " + config_file + ")"),
-      (clipp::option("-d", "--detector") & clipp::value("detector", detector)) %
+      (clipp::option("-d", "--detector") & clipp::value("detector", detector) &
+       clipp::opt_values("detector-options", detector_options)) %
           ("race detector (default: " + detector + ")"),
       ((clipp::option("-s", "--sample-rate") &
         clipp::integer("sample-rate", sampling_rate)) %
@@ -129,7 +130,8 @@ void RuntimeConfig::parse_args(int argc_, const char **argv_) {
       clipp::option("-h", "--usage").set(display_help) % "display help");
   auto detector_cli = clipp::group(
       // we just name the options here to provide a well-defined cli.
-      // The detector parses the argv itself
+      // The detector-specific options are parsed from argv by the detector
+      // itself
       clipp::option("--heap-only") %
       "only analyze heap memory (not supported currently)");
   auto cli =

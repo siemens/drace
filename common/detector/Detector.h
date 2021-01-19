@@ -88,6 +88,8 @@ class Detector {
    * \brief initialize detector
    *
    * Takes command line arguments and a callback to process a data-race.
+   *
+   * \note argv pointers are only valid during this function's invocation
    */
   virtual bool init(
       /// program argument count (can be zero)
