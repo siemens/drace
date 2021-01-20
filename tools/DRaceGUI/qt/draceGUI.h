@@ -25,6 +25,7 @@
 #include <string>
 #include "Command_Handler.h"
 #include "DR_Options_Dialog.h"
+#include "Detector_Options_Dialog.h"
 #include "Executor.h"
 #include "Load_Save.h"
 #include "Process_Handler.h"
@@ -52,6 +53,7 @@ class DRaceGUI : public QMainWindow {
   void on_dr_path_btn_clicked();
   void on_dr_options_btn_clicked();
   void on_drace_path_btn_clicked();
+  void on_detector_options_btn_clicked();
   void on_exe_path_btn_clicked();
   void on_config_browse_btn_clicked();
   void on_run_button_clicked();
