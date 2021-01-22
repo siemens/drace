@@ -27,6 +27,8 @@ void Data_Handler::get_data(Report_Handler* rh, Command_Handler* ch,
   config.at("dr_args") = data[Command_Handler::DR_ARGS].toStdString();
   config.at("drace") = data[Command_Handler::DRACE].toStdString();
   config.at("detector") = data[Command_Handler::DETECTOR].toStdString();
+  config.at("detector_args") =
+      data[Command_Handler::DETECTOR_ARGS].toStdString();
   config.at("flags") = data[Command_Handler::FLAGS].toStdString();
   config.at("ext_ctrl") = data[Command_Handler::EXT_CTRL].toStdString();
   config.at("configuration") =
@@ -71,6 +73,8 @@ void Data_Handler::set_data(Report_Handler* rh, Command_Handler* ch,
       QString(config.value("drace", "").c_str());
   ch->command[Command_Handler::DETECTOR] =
       QString(config.value("detector", "").c_str());
+  ch->command[Command_Handler::DETECTOR_ARGS] =
+      QString(config.value("detector_args", "").c_str());
   ch->command[Command_Handler::FLAGS] =
       QString(config.value("flags", "").c_str());
   ch->command[Command_Handler::EXT_CTRL] =

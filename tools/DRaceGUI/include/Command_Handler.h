@@ -26,6 +26,7 @@ class Command_Handler {
     DR_ARGS,
     DRACE,
     DETECTOR,
+    DETECTOR_ARGS,
     FLAGS,
     REPORT_FLAG,
     EXT_CTRL,

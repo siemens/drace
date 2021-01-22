@@ -103,6 +103,13 @@ void DRaceGUI::on_drace_path_btn_clicked() {
   }
 }
 
+void DRaceGUI::on_detector_options_btn_clicked() {
+  Detector_Options_Dialog *detector_options_window;
+  detector_options_window = new Detector_Options_Dialog(ch, this);
+  detector_options_window->exec();
+  ui->command_output->setText(ch->get_command());
+}
+
 void DRaceGUI::on_dr_options_btn_clicked() {
   DR_Options_Dialog *dr_options_window;
   dr_options_window = new DR_Options_Dialog(ch, this);

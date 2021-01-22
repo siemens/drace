@@ -11,6 +11,7 @@
  */
 
 #include <string>
+#include <vector>
 
 namespace drace {
 /// Runtime parameters
@@ -38,6 +39,9 @@ class RuntimeConfig {
   std::string logfile{"stderr"};
   std::string detector{"tsan"};
   std::string filter_file{"race_suppressions.txt"};
+
+  /// detector options/arguments (assuming no collisions with other DRace flags)
+  std::vector<std::string> detector_options;
 
   // Raw arguments
   int argc;

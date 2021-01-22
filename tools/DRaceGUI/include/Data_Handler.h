@@ -33,6 +33,7 @@ class Data_Handler {
                  {"dr_args", ""},
                  {"drace", ""},
                  {"detector", ""},
+                 {"detector_args", ""},
                  {"flags", ""},
                  {"ext_ctrl", ""},
                  {"configuration", ""},
