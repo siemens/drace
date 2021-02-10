@@ -117,6 +117,13 @@ class Integration : public ::testing::Test {
         verbose = true;
       }
     }
+    // insert quotation marks if paths contain whitespace
+    if (drrun.find(' ') != std::string::npos) {
+      drrun = "\"" + drrun + "\"";
+    }
+    if (drclient.find(' ') != std::string::npos) {
+      drclient = "\"" + drclient + "\"";
+    }
 
     if (verbose) {
       std::cout << "> Use DynamoRio in: " << drrun << std::endl;
