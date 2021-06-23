@@ -21,14 +21,14 @@
 
 /**
  * \class PoolAllocator.
- * \brief it used to allocate memory in chunks. It can be used in combination
- * with the \class Segregator to split on the sizes Header File implementing a
+ * \brief it is used to allocate memory in chunks. It can be used in combination
+ * with the \class Segregator to split on the sizes.
  *
- * \note this version is used with types. The \class SizePoolAllocator is used
+ * \note This version is used with types. The \class SizePoolAllocator is used
  * to allocate chunks of predefined sizes.
  *
  * \note There is also a thread-safe version. This is currently only
- * experimental
+ * experimental.
  */
 template <typename T, size_t num_chunks = 512>
 class PoolAllocator {

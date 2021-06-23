@@ -92,8 +92,9 @@ class TreeDepot {
   void remove_function_element() {
     std::lock_guard<ipc::spinlock> lg(read_write_lock);
 
-    // func_exit before func_enter might happen. The instrumentation side might skip a func_enter call
-    if (nullptr == _curr_elem) return; 
+    // func_exit before func_enter might happen. The instrumentation side might
+    // skip a func_enter call
+    if (nullptr == _curr_elem) return;
 
     if (nullptr == _curr_elem->parent) {  // exiting the root function
       // TODO: switch INode* to std::shared_pointer to deallocate memory once

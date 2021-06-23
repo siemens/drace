@@ -48,8 +48,6 @@ class SelectAllocator {
 
   void deallocate(INode* ptr, size_t size) {
     if (size < threshold1) {
-      // Node<threshold1>* tmp = dynamic_cast<Node<threshold1>*>(ptr);
-      // tmp->~Node<threshold1>(); //doens't work when I am calling destructor
       al1.deallocate(ptr);
     } else if (size < threshold2) {
       al2.deallocate(ptr);
