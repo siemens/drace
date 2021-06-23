@@ -70,8 +70,7 @@ class Fasttrack : public Detector {
   LockT g_lock;
 
   /// switch logging of read/write operations
-  bool log_flag = true;
-  bool final_output = (true && log_flag);
+  bool log_flag = false;
 
   // TODO: Variables should be defined via an external framework
   /// flags that specify if memory should be capped by removing memory addresses
@@ -387,7 +386,7 @@ class Fasttrack : public Detector {
     shared_vcs.clear();
     VectorClock<>::thread_ids.clear();
 
-    if (final_output) process_log_output();
+    if (log_flag) process_log_output();
     fflush(stdout);
     std::cout << std::flush;
   }
