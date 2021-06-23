@@ -52,7 +52,7 @@ void read_from_block(std::vector<std::pair<uintptr_t*, uintptr_t*>>* blocks) {
   } catch (const std::exception& e) {
     std::cout << e.what() << std::endl;
   } catch (...) {
-    std::cout << "Failure!" << std::endl;
+    std::cout << "Unexpected failure occurred from ft_benchmark." << std::endl;
   }
 }
 
