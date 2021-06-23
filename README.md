@@ -263,6 +263,7 @@ For detailed information on all dependencies, see `DEPENDENCIES.md`.
 - [leethomason/tinyxml2](https://github.com/leethomason/tinyxml2)
 - [google/googletest](https://github.com/google/googletest)
 - [google/benchmark](https://github.com/google/benchmark)
+- [greq7mdp/parallel-hashmap](https://github.com/greg7mdp/parallel-hashmap)
 
 ##### DRaceGUI
 

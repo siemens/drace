@@ -45,6 +45,7 @@ All submodules are located in the `vendor` directory.
 **Mandatory:**
 
 - [gabime/spdlog](https://github.com/gabime/spdlog)
+- [greq7mdp/sparsepp](https://github.com/greg7mdp/sparsepp)
 
 ### DRace GUI
 
