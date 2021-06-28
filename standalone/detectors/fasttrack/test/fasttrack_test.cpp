@@ -10,8 +10,8 @@
  * SPDX-License-Identifier: MIT
  */
 
-#include <fasttrack.h>
 #include <random>
+#include "fasttrack_wrapper.h"
 #include "gtest/gtest.h"
 #include "stacktrace.h"
 
@@ -19,7 +19,7 @@ using ::testing::UnitTest;
 
 TEST(FasttrackTest, BasicStackTrace) {
   using namespace drace::detector;
-  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto ft = std::make_unique<FasttrackWrapper<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r, void*) {};
   const char* argv_mock[] = {"ft_test"};
@@ -63,7 +63,7 @@ TEST(FasttrackTest, BasicStackTrace) {
 
 TEST(FasttrackTest, ComplexStackTrace) {
   using namespace drace::detector;
-  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto ft = std::make_unique<FasttrackWrapper<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r, void*) {};
   const char* argv_mock[] = {"ft_test"};
@@ -120,7 +120,7 @@ TEST(FasttrackTest, ComplexStackTrace) {
 
 TEST(FasttrackTest, MoreComplexStackTrace) {
   using namespace drace::detector;
-  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto ft = std::make_unique<FasttrackWrapper<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r, void*) {};
   const char* argv_mock[] = {"ft_test"};
@@ -144,7 +144,6 @@ TEST(FasttrackTest, MoreComplexStackTrace) {
   ft->func_exit(tls[0]);
   ft->func_exit(tls[0]);
   ft->func_exit(tls[0]);
-  // ft->func_exit(tls[0]);
   ft->func_enter(tls[0], (void*)0x2ull);
   ft->func_enter(tls[0], (void*)0x6ull);
   ft->read(tls[0], (void*)0x1002ull, (void*)0x102ull, 8);
@@ -195,7 +194,7 @@ TEST(FasttrackTest, MoreComplexStackTrace) {
 TEST(FasttrackTest, Indicate_Write_Write_Race) {
   std::size_t addr = 0x43EFull;
   using namespace drace::detector;
-  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto ft = std::make_unique<FasttrackWrapper<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r, void*) {};
   const char* argv_mock[] = {"ft_test"};
@@ -208,17 +207,17 @@ TEST(FasttrackTest, Indicate_Write_Write_Race) {
   ft->write(tls[0], (void*)0x78Eull, (void*)addr, 16);
   ft->write(tls[1], (void*)0x3A4Dull, (void*)addr, 16);
 
-  EXPECT_EQ(ft->log_count.wr_race, 0);
-  EXPECT_EQ(ft->log_count.rw_ex_race, 0);
-  EXPECT_EQ(ft->log_count.ww_race, 1);
-  EXPECT_EQ(ft->log_count.rw_sh_race, 0);
+  EXPECT_EQ(ft->getData().wr_race, 0);
+  EXPECT_EQ(ft->getData().rw_ex_race, 0);
+  EXPECT_EQ(ft->getData().ww_race, 1);
+  EXPECT_EQ(ft->getData().rw_sh_race, 0);
   ft->finalize();
 }
 
 TEST(FasttrackTest, Indicate_Exclusive_Read_Write_Race) {
   std::size_t addr = 0x65BEull;
   using namespace drace::detector;
-  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto ft = std::make_unique<FasttrackWrapper<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r, void*) {};
   const char* argv_mock[] = {"ft_test"};
@@ -231,17 +230,17 @@ TEST(FasttrackTest, Indicate_Exclusive_Read_Write_Race) {
   ft->read(tls[0], (void*)0x687CDull, (void*)addr, 16);
   ft->write(tls[1], (void*)0x9765Dull, (void*)addr, 16);
 
-  EXPECT_EQ(ft->log_count.wr_race, 0);
-  EXPECT_EQ(ft->log_count.rw_ex_race, 1);
-  EXPECT_EQ(ft->log_count.ww_race, 0);
-  EXPECT_EQ(ft->log_count.rw_sh_race, 0);
+  EXPECT_EQ(ft->getData().wr_race, 0);
+  EXPECT_EQ(ft->getData().rw_ex_race, 1);
+  EXPECT_EQ(ft->getData().ww_race, 0);
+  EXPECT_EQ(ft->getData().rw_sh_race, 0);
   ft->finalize();
 }
 
 TEST(FasttrackTest, Indicate_Write_Read_Race) {
   std::size_t addr = 0x342BEull;
   using namespace drace::detector;
-  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto ft = std::make_unique<FasttrackWrapper<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r, void*) {};
   const char* argv_mock[] = {"ft_test"};
@@ -254,17 +253,17 @@ TEST(FasttrackTest, Indicate_Write_Read_Race) {
   ft->write(tls[1], (void*)0x9868Dull, (void*)addr, 16);
   ft->read(tls[0], (void*)0x434CDull, (void*)addr, 16);
 
-  EXPECT_EQ(ft->log_count.wr_race, 1);
-  EXPECT_EQ(ft->log_count.rw_ex_race, 0);
-  EXPECT_EQ(ft->log_count.ww_race, 0);
-  EXPECT_EQ(ft->log_count.rw_sh_race, 0);
+  EXPECT_EQ(ft->getData().wr_race, 1);
+  EXPECT_EQ(ft->getData().rw_ex_race, 0);
+  EXPECT_EQ(ft->getData().ww_race, 0);
+  EXPECT_EQ(ft->getData().rw_sh_race, 0);
   ft->finalize();
 }
 
 TEST(FasttrackTest, Indicate_No_Race_Read_Exclusive) {
   std::size_t addr = 0x42Full;
   using namespace drace::detector;
-  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto ft = std::make_unique<FasttrackWrapper<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r, void*) {};
   const char* argv_mock[] = {"ft_test"};
@@ -282,18 +281,18 @@ TEST(FasttrackTest, Indicate_No_Race_Read_Exclusive) {
   ft->read(tls[0], (void*)0x5F3ull, (void*)addr, 16);
   ft->release(tls[0], (void*)0x01000000, true);
 
-  EXPECT_EQ(ft->log_count.wr_race, 0);
-  EXPECT_EQ(ft->log_count.rw_ex_race, 0);
-  EXPECT_EQ(ft->log_count.ww_race, 0);
-  EXPECT_EQ(ft->log_count.rw_sh_race, 0);
-  EXPECT_EQ(ft->log_count.read_exclusive, 1);
+  EXPECT_EQ(ft->getData().wr_race, 0);
+  EXPECT_EQ(ft->getData().rw_ex_race, 0);
+  EXPECT_EQ(ft->getData().ww_race, 0);
+  EXPECT_EQ(ft->getData().rw_sh_race, 0);
+  EXPECT_EQ(ft->getData().read_exclusive, 1);
   ft->finalize();
 }
 
 TEST(FasttrackTest, Indicate_No_Race_Write_Exclusive) {
   std::size_t addr = 0x42Full;
   using namespace drace::detector;
-  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto ft = std::make_unique<FasttrackWrapper<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r, void*) {};
   const char* argv_mock[] = {"ft_test"};
@@ -311,12 +310,12 @@ TEST(FasttrackTest, Indicate_No_Race_Write_Exclusive) {
   ft->write(tls[0], (void*)0x5FFull, (void*)addr, 16);
   ft->release(tls[0], (void*)0x01000000, true);
 
-  EXPECT_EQ(ft->log_count.wr_race, 0);
-  EXPECT_EQ(ft->log_count.rw_ex_race, 0);
-  EXPECT_EQ(ft->log_count.ww_race, 0);
-  EXPECT_EQ(ft->log_count.rw_sh_race, 0);
-  EXPECT_EQ(ft->log_count.read_exclusive, 1);
-  EXPECT_EQ(ft->log_count.write_exclusive, 1);
+  EXPECT_EQ(ft->getData().wr_race, 0);
+  EXPECT_EQ(ft->getData().rw_ex_race, 0);
+  EXPECT_EQ(ft->getData().ww_race, 0);
+  EXPECT_EQ(ft->getData().rw_sh_race, 0);
+  EXPECT_EQ(ft->getData().read_exclusive, 1);
+  EXPECT_EQ(ft->getData().write_exclusive, 1);
   ft->finalize();
 }
 
@@ -325,7 +324,7 @@ TEST(FasttrackTest, Indicate_No_Race_Write_Exclusive) {
 TEST(FasttrackTest, Indicate_Shared_Read_Write_Race) {
   std::size_t addr = 0x42Full;
   using namespace drace::detector;
-  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto ft = std::make_unique<FasttrackWrapper<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r, void*) {
     ASSERT_EQ(r->first.stack_size, 1);
@@ -349,10 +348,10 @@ TEST(FasttrackTest, Indicate_Shared_Read_Write_Race) {
   ft->read(tls[1], (void*)0x5FFull, (void*)addr, 16);
   ft->write(tls[2], (void*)0x78Eull, (void*)addr, 16);
 
-  EXPECT_EQ(ft->log_count.wr_race, 0);
-  EXPECT_EQ(ft->log_count.rw_ex_race, 0);
-  EXPECT_EQ(ft->log_count.ww_race, 0);
-  EXPECT_EQ(ft->log_count.rw_sh_race, 1);
+  EXPECT_EQ(ft->getData().wr_race, 0);
+  EXPECT_EQ(ft->getData().rw_ex_race, 0);
+  EXPECT_EQ(ft->getData().ww_race, 0);
+  EXPECT_EQ(ft->getData().rw_sh_race, 1);
   ft->finalize();
 }
 
@@ -361,7 +360,7 @@ TEST(FasttrackTest, Drop_State_Indicate_Shared_Read_Write_Race) {
   std::size_t addr[] = {0x5678Full, 0x678Full, 0x78Full};
 
   using namespace drace::detector;
-  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto ft = std::make_unique<FasttrackWrapper<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r, void*) {};
   const char* argv_mock[] = {"ft_test", "--size", "2"};
@@ -375,14 +374,14 @@ TEST(FasttrackTest, Drop_State_Indicate_Shared_Read_Write_Race) {
   ft->read(tls[0], (void*)0x5F3ull, (void*)addr[0], 16);
   ft->read(tls[1], (void*)0x5FFull, (void*)addr[0], 16);
 
-  ft->clear_var_state(addr[0]);
+  ft->clear_var_state_helper(addr[0]);
 
   ft->write(tls[2], (void*)0x78Eull, (void*)addr[0], 16);
 
-  EXPECT_EQ(ft->log_count.wr_race, 0);
-  EXPECT_EQ(ft->log_count.rw_ex_race, 0);
-  EXPECT_EQ(ft->log_count.ww_race, 0);
-  EXPECT_EQ(ft->log_count.rw_sh_race, 1);
+  EXPECT_EQ(ft->getData().wr_race, 0);
+  EXPECT_EQ(ft->getData().rw_ex_race, 0);
+  EXPECT_EQ(ft->getData().ww_race, 0);
+  EXPECT_EQ(ft->getData().rw_sh_race, 1);
   ft->finalize();
 }
 
@@ -395,7 +394,7 @@ TEST(FasttrackTest, Write_Write_Race) {
   std::size_t addr5 = 0x705ull;
 
   using namespace drace::detector;
-  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto ft = std::make_unique<FasttrackWrapper<std::mutex>>();
 
   auto rc_clb = [](const Detector::Race* r, void*) {};
   const char* argv_mock[] = {"ft_test", "--size",
@@ -448,17 +447,17 @@ TEST(FasttrackTest, Write_Write_Race) {
 
   ft->write(tls[2], (void*)0x78Eull, (void*)addr0, 16);  // this is the race
 
-  EXPECT_EQ(ft->log_count.wr_race, 0);
-  EXPECT_EQ(ft->log_count.rw_ex_race, 0);
-  EXPECT_EQ(ft->log_count.ww_race, 1);
-  EXPECT_EQ(ft->log_count.rw_sh_race, 0);
+  EXPECT_EQ(ft->getData().wr_race, 0);
+  EXPECT_EQ(ft->getData().rw_ex_race, 0);
+  EXPECT_EQ(ft->getData().ww_race, 1);
+  EXPECT_EQ(ft->getData().rw_sh_race, 0);
   ft->finalize();
 }
 
 TEST(FasttrackTest, Full_Fasttrack_Simple_Race) {
   using namespace drace::detector;
 
-  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto ft = std::make_unique<FasttrackWrapper<std::mutex>>();
   auto rc_clb = [](const Detector::Race* r, void*) {
     ASSERT_EQ(r->first.stack_size, 1);
     ASSERT_EQ(r->second.stack_size, 2);
@@ -486,7 +485,7 @@ TEST(FasttrackTest, Full_Fasttrack_Simple_Race) {
 TEST(FasttrackTest, Fasttrack_Race_And_StackTrace) {
   using namespace drace::detector;
 
-  auto ft = std::make_unique<Fasttrack<std::mutex>>();
+  auto ft = std::make_unique<FasttrackWrapper<std::mutex>>();
   auto rc_clb = [](const Detector::Race* r, void*) {
     ASSERT_EQ(r->first.stack_size, 7);
     ASSERT_EQ(r->second.stack_size, 6);

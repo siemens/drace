@@ -72,6 +72,9 @@ class Fasttrack : public Detector {
   /// switch logging of read/write operations
   bool log_flag = false;
 
+  template <class LockT>
+  friend class FasttrackWrapper;
+
   // TODO: Variables should be defined via an external framework
   /// flags that specify if memory should be capped by removing memory addresses
   /// and the policy to be used for the removal.
