@@ -1,40 +1,49 @@
 #ifndef FASTTRACK_H
 #define FASTTRACK_H
+
 /*
  * DRace, a dynamic data race detector
  *
- * Copyright 2018 Siemens AG
+ * Copyright 2020 Siemens AG
  *
  * Authors:
  *   Felix Moessbauer <felix.moessbauer@siemens.com>
+ *   Mihai Robescu <mihai-gabriel.robescu@siemens.com>
  *
  * SPDX-License-Identifier: MIT
  */
 
 #include <detector/Detector.h>
 #include <ipc/spinlock.h>
+#include <chrono>  //for seeding random generator
 #include <iomanip>
 #include <iostream>
-#include <mutex>  // for lock_guard
-#include <shared_mutex>
+#include <mutex>   // for lock_guard
+#include <random>  // for remove_random_memory_addresses()
 #include "parallel_hashmap/phmap.h"
-#include "stacktrace.h"
 #include "threadstate.h"
 #include "varstate.h"
 #include "xvector.h"
 
-#define MAKE_OUTPUT false
 #define REGARD_ALLOCS true
+#define MAKE_OUTPUT false
 #define POOL_ALLOC false
 
-///\todo implement a pool allocator
+///\todo implement a pool allocator;
+// Implemented; There exists also a thread-safe version
 #if POOL_ALLOC
-#include "util/PoolAllocator.h"
+#include "PoolAllocator.h"
 #endif
 
 namespace drace {
 namespace detector {
 
+/**
+ * \class Fasttrack
+ * \brief Main class that implements the FastTrack2 algorithm using the
+ * interface provided by the Detector
+ * \param LockT a lock used for providing internal mutual exclusion.
+ */
 template <class LockT>
 class Fasttrack : public Detector {
  public:
@@ -50,45 +59,353 @@ class Fasttrack : public Detector {
   using c_alloc = std::allocator<X>;
 #endif
 
- private:
-  /// these maps hold the various state objects together with the identifiers
-  phmap::parallel_flat_hash_map<size_t, size_t> allocs;
-  // we have to use a node hash map here, as we access the nodes from multiple
-  // threads, while the map might grow in the meantime. \todo for memory
-  // efficiency and locality, better use (userspace) RW-locks and use
-  //       the flat version of the map
-  phmap::parallel_node_hash_map<size_t, VarState> vars;
-  // number of locks, threads is expected to be < 1000, hence use one map
-  // (without submaps)
-  phmap::flat_hash_map<void*, VectorClock<>> locks;
-  phmap::flat_hash_map<tid_ft, ts_ptr> threads;
-  phmap::parallel_flat_hash_map<void*, VectorClock<>> happens_states;
+  explicit Fasttrack() = default;
 
+ private:
   /// holds the callback address to report a race to the drace-main
   Callback clb;
   void* clb_context;
 
+  /// central lock, used for accesses to global tables except vars (order: 1)
+  LockT g_lock;
+
   /// switch logging of read/write operations
   bool log_flag = false;
 
-  /// internal statistics
-  struct log_counters {
-    uint32_t read_ex_same_epoch = 0;
-    uint32_t read_sh_same_epoch = 0;
-    uint32_t read_shared = 0;
-    uint32_t read_exclusive = 0;
-    uint32_t read_share = 0;
-    uint32_t write_same_epoch = 0;
-    uint32_t write_exclusive = 0;
-    uint32_t write_shared = 0;
-  } log_count;
+  template <class LockT>
+  friend class FasttrackWrapper;
 
-  /// central lock, used for accesses to global tables except vars (order: 1)
-  LockT g_lock;  // global Lock
+  // TODO: Variables should be defined via an external framework
+  /// flags that specify if memory should be capped by removing memory addresses
+  /// and the policy to be used for the removal.
+  bool flag_remove_memory_adresses = false;
 
-  /// spinlock to protect accesses to vars table (order: 2)
-  mutable ipc::spinlock vars_spl;
+  /**
+   * \note flag_remove_retired_memory_addresses should be true by default
+   */
+  bool flag_remove_retired_memory_addresses =
+      (true && flag_remove_memory_adresses);
+  bool flag_remove_by_prunning_hash_map =
+      (false && flag_remove_memory_adresses);
+  bool flag_remove_random_memory_addresses =
+      (true && flag_remove_memory_adresses);
+  bool flag_remove_by_lowest_clock = (false && flag_remove_memory_adresses);
 
+  /// Represents the number of memory addresses that a user wants to store. In
+  /// close correlation with the capped memory usage of the tool
+  std::size_t vars_size =
+      50000;  // TODO: optimal threshold; also to be defined by the user.
+
+  /**
+   * \note shared_vcs maps an address to the status of read_shared. we use node,
+   * because while an address has a pointer, another one may add to the HashMap,
+   * as the locks are on address => we might invalidate our pointers from
+   * another adress
+   */
+  static constexpr uint64_t shared_vcs_number_of_sub_maps = 0x4ull;
+  template <class K, class V>
+  using phmap_parallel_node_hash_map = phmap::parallel_node_hash_map<
+      K, V, phmap::priv::hash_default_hash<K>, phmap::priv::hash_default_eq<K>,
+      std::allocator<std::pair<const K, V>>, shared_vcs_number_of_sub_maps,
+      ipc::spinlock>;
+  phmap_parallel_node_hash_map<std::size_t, xvector<VectorClock<>::VC_EPOCH>>
+      shared_vcs;
+
+  /**
+   * \note we have to use a node hash map here, as we access it from multiple
+   * threads => the HashMap might grow in the meantime => we would
+   * invalidate our pointers unless we use a node map
+   */
+  static constexpr uint64_t vars_number_of_sub_maps = 0x5ull;
+  template <class K, class V>
+  using phmap_parallel_node_hash_map_no_lock = phmap::parallel_node_hash_map<
+      K, V, phmap::priv::hash_default_hash<K>, phmap::priv::hash_default_eq<K>,
+      std::allocator<std::pair<const K, V>>,
+      vars_number_of_sub_maps,  // number of SubMaps; change here affects
+                                // dropSubMap removal policy
+      ipc::spinlock>;           // phmap::NullMutex
+  phmap_parallel_node_hash_map_no_lock<size_t, VarState> vars;
+
+  /// these maps hold the various state objects together with the identifiers
+  phmap::parallel_flat_hash_map<size_t, size_t> allocs;
+
+  /**
+   * \note number of locks, threads is expected to be < 1000, hence use one map
+   * (without submaps)
+   */
+  phmap::flat_hash_map<void*, VectorClock<>> locks;
+  phmap::flat_hash_map<tid_ft, ts_ptr> threads;
+  phmap::parallel_flat_hash_map<void*, VectorClock<>> happens_states;
+
+  /// pool of spinlocks used to synchronize threads when accessing vars HashMap
+  /// based on the addr that they need from the Map
+  static constexpr uint64_t num_locks = 1024ull;
+  static constexpr uint64_t addr_mask = num_locks - 1;
+  std::array<ipc::spinlock, num_locks> spinlocks;
+  constexpr std::size_t hashOf(std::size_t addr) const {
+    return (addr >> 4) & addr_mask;
+  }
+
+  /// used in remove_retired_memory_addresses to skip the run through the
+  /// HashMap unless the last_min_th_clock modified from the last check
+  VectorClock<>::Clock last_min_th_clock = -1;
+
+ public:
+  bool init(int argc, const char** argv, Callback rc_clb, void* context) final {
+    parse_args(argc, argv);
+    clb = rc_clb;  // init callback
+    clb_context = context;
+    return true;
+  }
+
+  void read(tls_t tls, void* pc, void* addr, size_t size) final {
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->set_read_write((size_t)addr, reinterpret_cast<size_t>(pc));
+    {  // lock on the address
+      std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((size_t)addr)]);
+      if (flag_remove_memory_adresses) {
+        if (vars.size() >= vars_size) {
+          remove_memory_addresses();
+        }
+      }
+      // finds the VarState instance of a specific addr or creates it
+      auto it = vars.find((size_t)addr);
+      if (it == vars.end()) {
+#if MAKE_OUTPUT
+        std::cout << "variable is read before written" << std::endl;  // warning
+#endif
+        it = create_var((size_t)addr);
+      }
+      read(thr, &(it->second), (size_t)addr, size);
+    }
+  }
+
+  void write(tls_t tls, void* pc, void* addr, size_t size) final {
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->set_read_write((size_t)addr, reinterpret_cast<size_t>(pc));
+
+    {  // lock on the address
+      std::lock_guard<ipc::spinlock> lg(spinlocks[hashOf((size_t)addr)]);
+      if (flag_remove_memory_adresses) {
+        if (vars.size() >= vars_size) {
+          remove_memory_addresses();
+        }
+      }
+
+      // finds the VarState instance of a specific addr or creates it
+      auto it = vars.find((size_t)addr);
+      if (it == vars.end()) {
+        it = create_var((size_t)addr);
+      }
+
+      write(thr, &(it->second), (size_t)addr, size);
+    }
+  }
+
+  void func_enter(tls_t tls, void* pc) final {
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->get_stack_depot().insert_function_element(
+        reinterpret_cast<size_t>(pc));
+  }
+
+  void func_exit(tls_t tls) final {
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->get_stack_depot().remove_function_element();
+  }
+
+  void fork(tid_t parent, tid_t child, tls_t* tls) final {
+    ThreadState* thr;
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto thrit = threads.find(parent);
+    if (thrit != threads.end()) {
+      {
+        thrit->second->inc_vc();  // inc vector clock for creation of new thread
+      }
+      thr = create_thread(child, thrit->second);
+    } else {
+      thr = create_thread(child);
+    }
+    *tls = reinterpret_cast<tls_t>(thr);
+  }
+
+  void join(tid_t parent, tid_t child) final {
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto del_thread_it = threads.find(child);
+    auto parent_it = threads.find(parent);
+
+    // TODO: we should never see invalid ids here.
+    // However, after an application fault like in the howto,
+    // at least one thread is joined multiple times
+    if (del_thread_it == threads.end() || parent_it == threads.end()) {
+#if MAKE_OUTPUT
+      std::cerr << "invalid thread IDs in join (" << parent << "," << child
+                << ")" << std::endl;
+#endif
+      return;
+    }
+
+    ts_ptr del_thread = del_thread_it->second;
+    VectorClock<>::ThreadNum del_thread_th_num =
+        del_thread_it->second->get_th_num();
+    ts_ptr par_thread = parent_it->second;
+
+    par_thread->update(*del_thread);
+
+    threads.erase(del_thread_it);  // no longer do the search
+    cleanup(del_thread_th_num);
+  }
+
+  // sync thread vc to lock vc
+  void acquire(tls_t tls, void* mutex, int recursive, bool write) final {
+    if (recursive >
+        1) {   // lock haven't been updated by another thread (by definition)
+      return;  // therefore no action needed here as only the invoking
+               // thread may have updated the lock
+    }
+
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto it = locks.find(mutex);
+    if (it == locks.end()) {
+      it = createLock(mutex);
+    }
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    (thr)->update(it->second);
+  }
+
+  void release(tls_t tls, void* mutex, bool write) final {
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto it = locks.find(mutex);
+    if (it == locks.end()) {
+#if MAKE_OUTPUT
+      std::cerr << "lock is released but was never acquired by any thread"
+                << std::endl;
+#endif
+      createLock(mutex);
+      return;  // as lock is empty (was never acquired), we can return here
+    }
+
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+    thr->inc_vc();
+
+    // increase vector clock and propagate to lock
+    it->second.update(thr);  // ThreadState* is VectorClock* (inheritance)
+  }
+
+  // identifier = TID of another thread, which happens before our thread
+  void happens_before(tls_t tls, void* identifier) final {
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto it = happens_states.find(identifier);
+    if (it == happens_states.end()) {
+      it = create_happens(identifier);
+    }
+
+    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+
+    thr->inc_vc();  // increment clock of thread and update happens state
+    it->second.update(thr->get_th_num(), thr->return_own_id());
+    // calls update(ThreadNum th_num, VC_EPOCH id)
+  }
+
+  void happens_after(tls_t tls, void* identifier) final {
+    {
+      std::lock_guard<LockT> exLockT(g_lock);
+      auto it = happens_states.find(identifier);
+      if (it == happens_states.end()) {
+        create_happens(identifier);
+        return;  // create -> no happens_before can be synced
+      } else {
+        ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
+        // update vector clock of thread with happened before clocks
+        thr->update(it->second);  // calls update(VectorClock* other)
+      }
+    }
+  }
+
+  void allocate(tls_t tls, void* pc, void* addr, size_t size) final {
+#if REGARD_ALLOCS
+    size_t address = reinterpret_cast<size_t>(addr);
+    std::lock_guard<LockT> exLockT(g_lock);
+    if (allocs.find(address) == allocs.end()) {
+      create_alloc(address, size);
+    }
+#endif
+  }
+
+  // when we deallocate a variable we erase it from the VarState
+  void deallocate(tls_t tls, void* addr) final {
+#if REGARD_ALLOCS
+    size_t address = reinterpret_cast<size_t>(addr);
+    size_t end_addr;
+
+    std::lock_guard<LockT> exLockT(g_lock);
+    auto it = allocs.find(address);
+    if (it != allocs.end()) {
+      end_addr = address + it->second;
+    } else {
+      end_addr = 0;
+    }
+
+    while (address < end_addr) {  // we deallocate each address
+      /**
+       * \note Let's say we have a big vector that gets allocated. we track the
+       * allocation, but we don't create the Var state objects for the
+       * adresses. We create them 1 by 1 on each access. But when we deallocate
+       * we clear all of them
+       */
+
+      if (vars.find(address) != vars.end()) {
+        vars.erase(address);
+        address++;
+      } else {
+        address++;
+      }
+    }
+    allocs.erase(address);
+#endif
+  }
+
+  void detach(tls_t tls, tid_t thread_id) final {
+    /// \todo This is currently not supported
+    return;
+  }
+
+  void finish(tls_t tls, tid_t thread_id) final {
+    std::lock_guard<LockT> exLockT(g_lock);
+    /// just delete thread from list, no backward sync needed
+    VectorClock<>::ThreadNum th_num;
+    auto thrit = threads.find(thread_id);
+    th_num = thrit->second->get_th_num();
+    threads.erase(thrit);
+    cleanup(th_num);
+  }
+
+  void finalize() final {
+    std::lock_guard<LockT> lg1(g_lock);
+    vars.clear();
+    locks.clear();
+    happens_states.clear();
+    allocs.clear();
+    threads.clear();
+    shared_vcs.clear();
+    VectorClock<>::thread_ids.clear();
+
+    if (log_flag) process_log_output();
+    fflush(stdout);
+    std::cout << std::flush;
+  }
+
+  /**
+   * \note allocation of shadow memory is not required in this
+   *       detector. If a standalone version of Fasttrack is used
+   *       this function can be ignored
+   */
+  void map_shadow(void* startaddr, size_t size_in_bytes) final { return; }
+
+  const char* name() final { return "FASTTRACK"; }
+
+  const char* version() final { return "0.0.1"; }
+
+ private:
   /**
    * \brief report a data-race back to DRace
    * \note the function itself must not use locks
@@ -96,20 +413,20 @@ class Fasttrack : public Detector {
    *                  threads
    */
   void report_race(uint32_t thr1, uint32_t thr2, bool wr1, bool wr2,
-                   const VarState& var, size_t address) const {
+                   const VarState& var, size_t address,
+                   std::size_t size) const {
     auto it = threads.find(thr1);
     auto it2 = threads.find(thr2);
     auto it_end = threads.end();
 
     if (it == it_end ||
-        it2 == it_end) {  // if thread_id is, because of finishing, not in stack
-                          // traces anymore, return
-      return;
+        it2 == it_end) {  // if thread_id is, because of finishing, not in
+      return;             // stacktraces anymore, return
     }
-    std::list<size_t> stack1(
-        std::move(it->second->get_stackDepot().return_stack_trace(address)));
-    std::list<size_t> stack2(
-        std::move(it2->second->get_stackDepot().return_stack_trace(address)));
+    std::deque<size_t> stack1(
+        std::move(it->second->return_stack_trace(address)));
+    std::deque<size_t> stack2(
+        std::move(it2->second->return_stack_trace(address)));
 
     while (stack1.size() > Detector::max_stack_size) {
       stack1.pop_front();
@@ -122,7 +439,7 @@ class Fasttrack : public Detector {
     access1.thread_id = thr1;
     access1.write = wr1;
     access1.accessed_memory = address;
-    access1.access_size = var.size;
+    access1.access_size = size;
     access1.access_type = 0;
     access1.heap_block_begin = 0;
     access1.heap_block_size = 0;
@@ -134,7 +451,7 @@ class Fasttrack : public Detector {
     access2.thread_id = thr2;
     access2.write = wr2;
     access2.accessed_memory = address;
-    access2.access_size = var.size;
+    access2.access_size = size;
     access2.access_type = 0;
     access2.heap_block_begin = 0;
     access2.heap_block_size = 0;
@@ -150,33 +467,44 @@ class Fasttrack : public Detector {
   }
 
   /**
-   * \brief Wrapper for report_race to use const qualifier on
-   *        wrapped function
+   * \brief Wrapper for report_race to use const qualifier on wrapped function
    */
   void report_race_locked(uint32_t thr1, uint32_t thr2, bool wr1, bool wr2,
-                          const VarState& var, size_t addr) {
+                          const VarState& var, std::size_t addr,
+                          std::size_t size) {
     std::lock_guard<LockT> lg(g_lock);
-    report_race(thr1, thr2, wr1, wr2, var, addr);
+    report_race(thr1, thr2, wr1, wr2, var, addr, size);
   }
 
   /**
    * \brief takes care of a read access
    * \note works only on calling-thread and var object, not on any list
    */
-  void read(ThreadState* t, VarState* v, size_t addr) {
+  void read(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
     if (t->return_own_id() ==
-        v->get_read_id()) {  // read same epoch, same thread;
+        v->get_read_epoch()) {  // read same epoch, same thread;
       if (log_flag) {
         log_count.read_ex_same_epoch++;
       }
       return;
     }
 
-    size_t id = t->return_own_id();
-    uint32_t tid = t->get_tid();
+    VectorClock<>::VC_EPOCH id = t->return_own_id();  // id means epoch
+    VectorClock<>::ThreadNum th_num = t->get_th_num();
 
-    if (v->is_read_shared() &&
-        v->get_vc_by_thr(tid) == id) {  // read shared same epoch
+    xvector<VectorClock<>::VC_EPOCH>* shared_vc;
+    {
+      auto it = shared_vcs.find(addr);
+      /// returns the vector when read is shared
+      if (it != shared_vcs.end()) {  // if it exists get a pointer to the vector
+        shared_vc = &(it->second);   // vector copy would be too expensive
+      } else {  // if I find it is read_shared. else it is not
+        shared_vc = nullptr;
+      }
+    }
+
+    if (nullptr != shared_vc && v->get_vc_by_th_num(th_num, shared_vc) ==
+                                    id) {  // read shared same epoch
       if (log_flag) {
         log_count.read_sh_same_epoch++;
       }
@@ -184,90 +512,152 @@ class Fasttrack : public Detector {
     }
 
     if (v->is_wr_race(t)) {  // write-read race
-      report_race_locked(v->get_w_tid(), tid, true, false, *v, addr);
+      if (log_flag) {
+        log_count.wr_race++;
+      }
+      report_race_locked(v->get_write_thread_id(), t->get_tid(), true, false,
+                         *v, addr, size);
     }
 
     // update vc
-    if (!v->is_read_shared()) {
-      if (v->get_read_id() == VarState::VAR_NOT_INIT ||
-          (v->get_r_tid() ==
-           tid))  // read exclusive->read of same thread but newer epoch
-      {
+    if (nullptr == shared_vc) {  // if it's not read shared
+      if (v->get_read_epoch() == VarState::VAR_NOT_INIT ||
+          (v->get_read_thread_num() ==
+           th_num)) {  // read exclusive => read of same thread but newer epoch
+        update_var_state(false, id, v, addr, shared_vc);
         if (log_flag) {
           log_count.read_exclusive++;
         }
-        v->update(false, id);
-      } else {  // read gets shared
+      } else {  //=> means that (v->get_read_thread_id() != tid) && or variable
+                // hasn't
+                // been read yet read gets shared
+        set_read_shared_state(id, v, addr);
         if (log_flag) {
           log_count.read_share++;
         }
-        v->set_read_shared(id);
       }
     } else {  // read shared
+      update_var_state(false, id, v, addr, shared_vc);
       if (log_flag) {
         log_count.read_shared++;
       }
-      v->update(false, id);
     }
+  }
+
+  /// updates the var state because of a new read or write access
+  void update_var_state(bool is_write, VectorClock<>::VC_EPOCH id, VarState* v,
+                        std::size_t addr,
+                        xvector<VectorClock<>::VC_EPOCH>* shared_vc) {
+    if (is_write) {
+      if (nullptr != shared_vc) {
+        shared_vcs.erase(addr);
+        v->set_read_epoch(VarState::VAR_NOT_INIT);
+      }
+      v->set_write_epoch(id);
+      return;
+    }
+
+    // read, but not in shared mode
+    if (nullptr == shared_vc) {
+      v->set_read_epoch(id);
+      return;
+    }
+
+    // read in shared mode
+    auto it =
+        VarState::find_in_vec(VectorClock<>::make_thread_num(id), shared_vc);
+    if (it != shared_vc->end()) {
+      (*it) = id;  // just update the value
+    } else {
+      // if id was not found, we add it to the read_shared vector
+      shared_vc->push_back(id);
+    }
+  }
+
+  /// sets read state of the address to shared
+  void set_read_shared_state(VectorClock<>::VC_EPOCH id, VarState* v,
+                             std::size_t addr) {
+    xvector<VectorClock<>::VC_EPOCH>* tmp;
+    tmp = &(shared_vcs.emplace(addr, xvector<VectorClock<>::VC_EPOCH>(2))
+                .first->second);
+    tmp->operator[](0) = (v->get_read_epoch());
+    tmp->operator[](1) = (id);
+    v->set_read_epoch(VarState::READ_SHARED);
   }
 
   /**
    * \brief takes care of a write access
    * \note works only on calling-thread and var object, not on any list
    */
-  void write(ThreadState* t, VarState* v, size_t addr) {
-    if (t->return_own_id() == v->get_write_id()) {  // write same epoch
+  void write(ThreadState* t, VarState* v, std::size_t addr, std::size_t size) {
+    if (t->return_own_id() == v->get_write_epoch()) {  // write same epoch
       if (log_flag) {
         log_count.write_same_epoch++;
       }
       return;
     }
 
-    if (v->get_write_id() ==
-        VarState::VAR_NOT_INIT) {  // initial write, update var
+    VectorClock<>::ThreadNum th_num = t->get_th_num();
+    VectorClock<>::TID tid = t->get_tid();
+
+    // tids are different and write epoch greater or
+    // equal than known epoch of other thread
+    if (v->is_ww_race(t)) {  // write-write race
       if (log_flag) {
-        log_count.write_exclusive++;
+        log_count.ww_race++;
       }
-      v->update(true, t->return_own_id());
-      return;
+      report_race_locked(v->get_write_thread_id(), tid, true, true, *v, addr,
+                         size);
     }
 
-    uint32_t tid = t->get_tid();
-
-    // tids are different and write epoch greater or equal than known epoch of
-    // other thread
-    if (v->is_ww_race(t))  // write-write race
+    xvector<VectorClock<>::VC_EPOCH>* shared_vc;
     {
-      report_race_locked(v->get_w_tid(), tid, true, true, *v, addr);
+      auto it = shared_vcs.find(addr);
+      if (it != shared_vcs.end()) {
+        shared_vc = &(it->second);  // vector copy would be too expensive
+      } else {  // if I find it is read_shared. else it is not
+        shared_vc = nullptr;
+      }
     }
 
-    if (!v->is_read_shared()) {
+    if (nullptr == shared_vc) {
       if (log_flag) {
         log_count.write_exclusive++;
       }
-      if (v->is_rw_ex_race(t))  // read-write race
-      {
-        report_race_locked(v->get_r_tid(), t->get_tid(), false, true, *v, addr);
+      if (v->is_rw_ex_race(t)) {  // read-write race
+        if (log_flag) {
+          log_count.rw_ex_race++;
+        }
+        report_race_locked(v->get_read_thread_id(), tid, false, true, *v, addr,
+                           size);
       }
     } else {  // come here in read shared case
+              // TODO: search here for the shared_vc
       if (log_flag) {
         log_count.write_shared++;
       }
-      uint32_t act_tid = v->is_rw_sh_race(t);
-      if (act_tid != 0)  // read shared read-write race
-      {
-        report_race_locked(act_tid, tid, false, true, *v, addr);
+      VectorClock<>::ThreadNum act_th_num = v->is_rw_sh_race(t, shared_vc);
+      if (act_th_num != 0)  // we return 0 & we start counting ThreadNum from 1
+      {                     // read shared read-write race
+        if (log_flag) {
+          log_count.rw_sh_race++;
+        }
+        report_race_locked(VectorClock<>::make_tid_from_th_num(act_th_num), tid,
+                           false, true, *v, addr, size);
       }
     }
-    v->update(true, t->return_own_id());
+    update_var_state(true, t->return_own_id(), v, addr, shared_vc);
   }
 
   /**
    * \brief creates a new variable object (is called, when var is read or
    * written for the first time) \note Invariant: vars table is locked
    */
-  inline auto create_var(size_t addr, size_t size) {
-    return vars.emplace(addr, static_cast<uint16_t>(size)).first;
+  inline auto create_var(size_t addr) {
+    if (log_flag) {
+      log_count.no_allocatedVarStates++;
+    }
+    return vars.emplace(addr, VarState()).first;
   }
 
   /// creates a new lock object (is called when a lock is acquired or released
@@ -280,18 +670,24 @@ class Fasttrack : public Detector {
   }
 
   /// creates a new thread object (is called when fork() called)
-  ThreadState* create_thread(VectorClock<>::TID tid, ts_ptr parent = nullptr) {
+  inline ThreadState* create_thread(VectorClock<>::TID tid,
+                                    ts_ptr parent = nullptr) {
     ts_ptr new_thread;
 
     if (nullptr == parent) {
-      new_thread = threads.emplace(tid, std::make_shared<ThreadState>(tid))
-                       .first->second;
-    } else {
+      // This does not work be
+      // new_thread = threads.emplace(tid, std::make_shared<ThreadState>(tid))
+      //                  .first->second;
       new_thread =
-          threads.emplace(tid, std::make_shared<ThreadState>(tid, parent))
+          threads
+              .emplace(tid, std::shared_ptr<ThreadState>(new ThreadState(tid)))
               .first->second;
+    } else {
+      new_thread = threads
+                       .emplace(tid, std::shared_ptr<ThreadState>(
+                                         new ThreadState(tid, parent)))
+                       .first->second;
     }
-
     return new_thread.get();
   }
 
@@ -307,6 +703,303 @@ class Fasttrack : public Detector {
   inline void create_alloc(size_t addr, size_t size) {
     allocs.emplace(addr, size);
   }
+
+  void parse_args(int argc, const char** argv) {
+    int processed = 1;
+    while (processed < argc) {
+      if (strcmp(argv[processed], "--stats") == 0) {
+        log_flag = true;
+      }
+      if (strcmp(argv[processed], "--size") == 0) {
+        processed++;
+        vars_size = std::stoi(argv[processed]);
+      }
+      ++processed;
+    }
+  }
+
+  /**
+   * \brief deletes all data which is related to the tid
+   * is called when a thread finishes (either from \ref join() or from \ref
+   * finish()) \note Not Threadsafe
+   */
+  void cleanup(VectorClock<>::ThreadNum th_num) {
+    {
+      for (auto it = locks.begin(); it != locks.end(); ++it) {
+        it->second.delete_vc(th_num);
+      }
+
+      for (auto it = threads.begin(); it != threads.end(); ++it) {
+        it->second->delete_vc(th_num);
+      }
+
+      for (auto it = happens_states.begin(); it != happens_states.end(); ++it) {
+        it->second.delete_vc(th_num);
+      }
+    }
+    if (flag_remove_memory_adresses) {
+      remove_memory_addresses_of_finishing_thread(th_num);
+    }
+  }
+
+  /**
+   * \brief depending on the initialized flags is called in \ref read() or in
+   * \ref write(); It is used to limit memory consumption by removing memory
+   * addresses from tracking
+   */
+  inline void remove_memory_addresses() {
+    if (flag_remove_retired_memory_addresses) {
+      static uint32_t should_call = 1;
+      static uint32_t consider_useless = 1;
+      if (should_call >= consider_useless) {
+        VectorClock<>::Clock tmp =
+            remove_retired_memory_addresses(last_min_th_clock);
+        if (last_min_th_clock == tmp) {
+          consider_useless *= 2;
+        } else {
+          last_min_th_clock = tmp;
+          consider_useless = 1;
+        }
+        should_call = 1;
+        return;
+      } else {
+        should_call++;
+      }
+    }
+    if (flag_remove_by_prunning_hash_map) {
+      // the mask depends on the number of SubMaps of vars
+      static constexpr size_t mask = (1 << vars_number_of_sub_maps) - 1;
+      static size_t index = 0;
+      vars.clear((index & mask));
+      for (auto it = threads.begin(); it != threads.end(); ++it) {
+        // as there is no randomness same SubMap is dropped.
+        it->second->read_write.clear((index & mask));
+      }
+      index++;
+      if (log_flag) {
+        log_count.dropSubMap_calls++;
+      }
+      return;
+    }
+    if (flag_remove_random_memory_addresses) {
+      remove_random_memory_addresses();
+      return;
+    }
+    if (flag_remove_by_lowest_clock) {
+      remove_memory_addresses_by_lowest_clock();
+      return;
+    }
+  }
+
+  /// removes memory addresses of a joined or finished thread.
+  void remove_memory_addresses_of_finishing_thread(
+      VectorClock<>::ThreadNum th_num) {
+    auto it = vars.begin();
+    while (it != vars.end()) {
+      if (VectorClock<>::make_thread_num(it->second.get_read_epoch()) ==
+              th_num &&
+          VectorClock<>::make_thread_num(it->second.get_read_epoch()) ==
+              th_num) {  // the memory address was accessed only by this
+                         // thread
+        auto tmp = it;
+        it++;
+        vars.erase(tmp);
+        if (log_flag) {
+          log_count.no_VarStates_Of_Thread_removed++;
+        }
+      } else if (VectorClock<>::make_thread_num(it->second.get_write_epoch()) ==
+                 th_num) {
+        it->second.set_write_epoch(VarState::VAR_NOT_INIT);
+        it++;
+        continue;
+      } else if (VectorClock<>::make_thread_num(it->second.get_read_epoch()) ==
+                 th_num) {
+        it->second.set_read_epoch(VarState::VAR_NOT_INIT);
+        it++;
+        continue;
+      } else {
+        it++;
+      }
+    }
+  }
+
+  /// removes memory addresses that are no longer relevant to the detection
+  VectorClock<>::Clock remove_retired_memory_addresses(
+      VectorClock<>::Clock last_min_th_clock) {
+    if (log_flag) {
+      log_count.remove_retired_memory_addresses_calls++;
+    }
+    VectorClock<>::Clock min_th_clock = -1;
+    {
+      std::lock_guard<LockT> exLockT(g_lock);
+      for (auto it = threads.begin(); it != threads.end(); ++it) {
+        VectorClock<>::Clock tmp = -1;
+        if (threads.size() > it->second->get_length()) {
+          tmp = 0;
+        } else {
+          tmp = it->second->get_min_clock();
+        }
+        if (tmp < min_th_clock) {
+          min_th_clock = tmp;
+        }
+      }
+    }
+
+    if (min_th_clock == last_min_th_clock) return min_th_clock;
+
+    auto it = vars.begin();
+    while (it != vars.end()) {
+      if (min_th_clock > it->second.get_write_clock() &&
+          (min_th_clock > it->second.get_read_clock() ||
+           it->second.get_read_epoch() == VarState::READ_SHARED)) {
+        // if the VarState is in read_shared, it can be removed
+        auto tmp = it;
+        it++;
+        for (auto threads_it = threads.begin(); threads_it != threads.end();
+             ++threads_it) {
+          auto read_write_it = threads_it->second->read_write.find(it->first);
+          if (read_write_it != threads_it->second->read_write.end()) {
+            threads_it->second->read_write.erase(read_write_it);
+          }
+        }
+        vars.erase(tmp);
+
+        if (log_flag) {
+          log_count.num_retired_memory_adresses_removed++;
+        }
+      } else {
+        it++;
+      }
+    }
+
+    return min_th_clock;
+  }
+
+  /// removes memory addresses by choosing every 3 a random one to remove
+  void remove_random_memory_addresses() {
+    if (log_flag) {
+      log_count.remove_random_memory_addresses_calls++;
+    }
+
+    auto it = vars.begin();
+    // number of VarStates to consider at once for choosing
+    int no_VarStates = 4;
+    std::size_t pos = 0;
+    std::size_t vsize = vars.size();
+
+    auto now = std::chrono::high_resolution_clock::now();
+    auto ms = std::chrono::time_point_cast<std::chrono::milliseconds>(now)
+                  .time_since_epoch()
+                  .count();
+    std::mt19937 mt{(unsigned int)ms};
+    std::uniform_int_distribution<int> dist(0, no_VarStates - 1);
+
+    while (pos < vsize - 1) {
+      std::size_t random = dist(mt);
+      // TODO: needs adjustment, the threshold. might be too low
+      pos += random;
+      if (pos > vsize - 1) break;
+
+      std::advance(it, random);  // might skip vars.end();
+                                 // this is why we have the pos
+
+      // remove the variable, we don't care if it is read_shared or not
+      auto random_it = it;
+      pos++;
+      if (pos <= vsize - 1) {
+        it++;
+      }
+      for (auto threads_it = threads.begin(); threads_it != threads.end();
+           ++threads_it) {
+        auto read_write_it =
+            threads_it->second->read_write.find(random_it->first);
+        if (read_write_it != threads_it->second->read_write.end()) {
+          threads_it->second->read_write.erase(read_write_it);
+        }
+      }
+      vars.erase(random_it);
+
+      if (log_flag) {
+        log_count.num_random_memory_addresses_removed++;
+      }
+    }
+  }
+
+  /// removes memory addresses by choosing every 3 the one with the lowest
+  /// clock
+  void remove_memory_addresses_by_lowest_clock() {
+    if (log_flag) {
+      log_count.remove_memory_addresses_by_lowest_clock_calls++;
+    }
+
+    auto it = vars.begin();
+    std::size_t pos = 0;
+    VectorClock<>::Clock min_clock = -1;
+    auto remove_it = it;
+
+    while (it != vars.end()) {
+      // gather data from 3 variables and remove the one with the lowest
+      // clock.
+      if (it->second.get_write_clock() < min_clock) {
+        remove_it = it;
+        min_clock = it->second.get_write_clock();
+      }
+      it++;
+      pos++;
+      if (pos == 3) {  // 5 would be way too small. only e.g. 2000/10000 removed
+        pos = 0;
+
+        for (auto threads_it = threads.begin(); threads_it != threads.end();
+             ++threads_it) {
+          auto read_write_it =
+              threads_it->second->read_write.find(remove_it->first);
+          if (read_write_it != threads_it->second->read_write.end()) {
+            threads_it->second->read_write.erase(read_write_it);
+          }
+        }
+
+        vars.erase(remove_it);
+        remove_it = it;
+        min_clock = -1;
+
+        if (log_flag) {
+          log_count.no_Useful_VarStates_removed++;
+        }
+      }
+    }
+  }
+
+ public:
+  // protected:  // the log counters are public for testing
+  /**
+   * \note the things from here are used for both reporting back to the user
+   * statistics and for testing, as one can easily check that log counters
+   * correspond to check the correctness of the algorithm
+   */
+  /// statistics
+  struct log_counters {
+    uint32_t read_ex_same_epoch = 0;
+    uint32_t read_sh_same_epoch = 0;
+    uint32_t read_shared = 0;
+    uint32_t read_exclusive = 0;
+    uint32_t read_share = 0;
+    uint32_t write_same_epoch = 0;
+    uint32_t write_exclusive = 0;
+    uint32_t write_shared = 0;
+    uint32_t wr_race = 0;
+    uint32_t rw_sh_race = 0;
+    uint32_t ww_race = 0;
+    uint32_t rw_ex_race = 0;
+    uint32_t remove_retired_memory_addresses_calls = 0;
+    uint32_t remove_random_memory_addresses_calls = 0;
+    uint32_t remove_memory_addresses_by_lowest_clock_calls = 0;
+    uint32_t no_Useful_VarStates_removed = 0;
+    uint32_t num_retired_memory_adresses_removed = 0;
+    uint32_t num_random_memory_addresses_removed = 0;
+    uint32_t no_allocatedVarStates = 0;
+    uint32_t dropSubMap_calls = 0;
+    uint32_t no_VarStates_Of_Thread_removed = 0;
+  } log_count;
 
   /// print statistics about rule-hits
   void process_log_output() const {
@@ -356,278 +1049,44 @@ class Fasttrack : public Detector {
               << "Write exclusive: " << w_ex << std::endl;
     std::cout << std::fixed << std::setprecision(2) << "Write shared: " << w_sh
               << std::endl;
+    std::cout << "====----------- FASTTRACK_DETAILS: Values are absolute! "
+                 "-----------===="
+              << std::endl;
+    std::cout << "vars_size: " << vars_size << std::endl;
+    std::cout << "remove_retired_memory_addresses calls: "
+              << log_count.remove_retired_memory_addresses_calls << std::endl;
+    std::cout << "remove_random_memory_addresses calls: "
+              << log_count.remove_random_memory_addresses_calls << std::endl;
+    std::cout << "remove_memory_addresses_by_lowest_clock calls: "
+              << log_count.remove_memory_addresses_by_lowest_clock_calls
+              << std::endl;
+    std::cout << "dropSubMap_calls calls: " << log_count.dropSubMap_calls
+              << std::endl;
+    std::cout << "no_Useful_VarStates_removed: "
+              << log_count.no_Useful_VarStates_removed << std::endl;
+    std::cout << "num_retired_memory_adresses_removed: "
+              << log_count.num_retired_memory_adresses_removed << std::endl;
+    std::cout << "num_random_memory_addresses_removed: "
+              << log_count.num_random_memory_addresses_removed << std::endl;
+    std::cout << "no_VarStates_Of_Thread_removed: "
+              << log_count.no_VarStates_Of_Thread_removed << std::endl;
+    std::cout << "number of allocated VarStates: "
+              << log_count.no_allocatedVarStates << std::endl;
+    std::cout << "wr_race: " << log_count.wr_race << std::endl;
+    std::cout << "rw_sh_race: " << log_count.rw_sh_race << std::endl;
+    std::cout << "ww_race: " << log_count.ww_race << std::endl;
+    std::cout << "rw_ex_race: " << log_count.rw_ex_race << std::endl;
+    std::cout << std::endl;
   }
 
-  /**
-   * \brief deletes all data which is related to the tid
-   *
-   * is called when a thread finishes (either from \ref join() or from \ref
-   * finish())
-   *
-   * \note Not Threadsafe
-   */
-  void cleanup(uint32_t tid) {
-    {
-      for (auto it = locks.begin(); it != locks.end(); ++it) {
-        it->second.delete_vc(tid);
-      }
-
-      for (auto it = threads.begin(); it != threads.end(); ++it) {
-        it->second->delete_vc(tid);
-      }
-
-      for (auto it = happens_states.begin(); it != happens_states.end(); ++it) {
-        it->second.delete_vc(tid);
-      }
+  // helper funtion for a unit_test
+  void clear_var_state(std::size_t addr) {
+    auto it = vars.find((size_t)(addr));
+    if (it != vars.end()) {
+      vars.erase(it);
     }
   }
-
-  void parse_args(int argc, const char** argv) {
-    int processed = 1;
-    while (processed < argc) {
-      if (strcmp(argv[processed], "--stats") == 0) {
-        log_flag = true;
-        return;
-      } else {
-        ++processed;
-      }
-    }
-  }
-
- public:
-  explicit Fasttrack() = default;
-
-  bool init(int argc, const char** argv, Callback rc_clb, void* context) final {
-    parse_args(argc, argv);
-    clb = rc_clb;  // init callback
-    clb_context = context;
-    return true;
-  }
-
-  void finalize() final {
-    std::lock_guard<LockT> lg1(g_lock);
-    {
-      std::lock_guard<ipc::spinlock> lg2(vars_spl);
-      vars.clear();
-    }
-    locks.clear();
-    happens_states.clear();
-    allocs.clear();
-    threads.clear();
-
-    if (log_flag) {
-      process_log_output();
-    }
-  }
-
-  void read(tls_t tls, void* pc, void* addr, size_t size) final {
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().set_read_write((size_t)(addr),
-                                         reinterpret_cast<size_t>(pc));
-    VarState* var;
-    {
-      std::lock_guard<ipc::spinlock> exLockT(vars_spl);
-      auto it = vars.find((size_t)(addr));
-      if (it == vars.end()) {  // create new variable if new
-#if MAKE_OUTPUT
-        std::cout << "variable is read before written" << std::endl;  // warning
-#endif
-        it = create_var((size_t)(addr), size);
-      }
-      var = &(it->second);
-    }
-    std::lock_guard<ipc::spinlock> lg(var->lock);
-    read(thr, var, (size_t)addr);
-  }
-
-  void write(tls_t tls, void* pc, void* addr, size_t size) final {
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().set_read_write((size_t)addr,
-                                         reinterpret_cast<size_t>(pc));
-    VarState* var;
-    {
-      std::lock_guard<ipc::spinlock> exLockT(vars_spl);
-      auto it = vars.find((size_t)addr);
-      if (it == vars.end()) {
-        it = create_var((size_t)(addr), size);
-      }
-      var = &(it->second);
-    }
-    std::lock_guard<ipc::spinlock> lg(var->lock);
-    write(thr, var, (size_t)addr);
-  }
-
-  void func_enter(tls_t tls, void* pc) final {
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().push_stack_element(reinterpret_cast<size_t>(pc));
-  }
-
-  void func_exit(tls_t tls) final {
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->get_stackDepot().pop_stack_element();
-  }
-
-  void fork(tid_t parent, tid_t child, tls_t* tls) final {
-    ThreadState* thr;
-
-    std::lock_guard<LockT> exLockT(g_lock);
-    auto thrit = threads.find(parent);
-    if (thrit != threads.end()) {
-      {
-        thrit->second->inc_vc();  // inc vector clock for creation of new thread
-      }
-      thr = create_thread(child, threads[parent]);
-    } else {
-      thr = create_thread(child);
-    }
-    *tls = reinterpret_cast<tls_t>(thr);
-  }
-
-  void join(tid_t parent, tid_t child) final {
-    std::lock_guard<LockT> exLockT(g_lock);
-    auto del_thread_it = threads.find(child);
-    auto parent_it = threads.find(parent);
-    // TODO: we should never see invalid ids here.
-    // However, after an application fault like in the howto,
-    // at least one thread is joined multiple times
-    if (del_thread_it == threads.end() || parent_it == threads.end()) {
-#if MAKE_OUTPUT
-      std::cerr << "invalid thread IDs in join (" << parent << "," << child
-                << ")" << std::endl;
-#endif
-      return;
-    }
-
-    ts_ptr del_thread = del_thread_it->second;
-    ts_ptr par_thread = parent_it->second;
-    del_thread->inc_vc();
-    // pass incremented clock of deleted thread to parent
-    par_thread->update(*del_thread);
-    threads.erase(del_thread_it);
-    cleanup(child);
-  }
-
-  // sync thread vc to lock vc
-  void acquire(tls_t tls, void* mutex, int recursive, bool write) final {
-    if (recursive >
-        1) {   // lock haven't been updated by another thread (by definition)
-      return;  // therefore no action needed here as only the invoking thread
-               // may have updated the lock
-    }
-
-    std::lock_guard<LockT> exLockT(g_lock);
-    auto it = locks.find(mutex);
-    if (it == locks.end()) {
-      it = createLock(mutex);
-    }
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    (thr)->update(it->second);
-  }
-
-  void release(tls_t tls, void* mutex, bool write) final {
-    std::lock_guard<LockT> exLockT(g_lock);
-    auto it = locks.find(mutex);
-    if (it == locks.end()) {
-#if MAKE_OUTPUT
-      std::cerr << "lock is released but was never acquired by any thread"
-                << std::endl;
-#endif
-      createLock(mutex);
-      return;  // as lock is empty (was never acquired), we can return here
-    }
-
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-    thr->inc_vc();
-
-    // increase vector clock and propagate to lock
-    it->second.update(thr);
-  }
-
-  void happens_before(tls_t tls, void* identifier) final {
-    std::lock_guard<LockT> exLockT(g_lock);
-    auto it = happens_states.find(identifier);
-    if (it == happens_states.end()) {
-      it = create_happens(identifier);
-    }
-
-    ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-
-    thr->inc_vc();  // increment clock of thread and update happens state
-    it->second.update(thr->get_tid(), thr->return_own_id());
-  }
-
-  void happens_after(tls_t tls, void* identifier) final {
-    {
-      std::lock_guard<LockT> exLockT(g_lock);
-      auto it = happens_states.find(identifier);
-      if (it == happens_states.end()) {
-        create_happens(identifier);
-        return;  // create -> no happens_before can be synced
-      } else {
-        ThreadState* thr = reinterpret_cast<ThreadState*>(tls);
-        // update vector clock of thread with happened before clocks
-        thr->update(it->second);
-      }
-    }
-  }
-
-  void allocate(tls_t tls, void* pc, void* addr, size_t size) final {
-#if REGARD_ALLOCS
-    size_t address = reinterpret_cast<size_t>(addr);
-    std::lock_guard<LockT> exLockT(g_lock);
-    if (allocs.find(address) == allocs.end()) {
-      create_alloc(address, size);
-    }
-#endif
-  }
-
-  void deallocate(tls_t tls, void* addr) final {
-#if REGARD_ALLOCS
-    size_t address = reinterpret_cast<size_t>(addr);
-    size_t end_addr;
-
-    std::lock_guard<LockT> exLockT(g_lock);
-    end_addr = address + allocs[address];
-
-    // variable is deallocated so varstate objects can be destroyed
-    while (address < end_addr) {
-      std::lock_guard<ipc::spinlock> lg(vars_spl);
-      if (vars.find(address) != vars.end()) {
-        auto& var = vars.find(address)->second;
-        vars.erase(address);
-        address++;
-      } else {
-        address++;
-      }
-    }
-    allocs.erase(address);
-#endif
-  }
-
-  void detach(tls_t tls, tid_t thread_id) final {
-    /// \todo This is currently not supported
-    return;
-  }
-
-  void finish(tls_t tls, tid_t thread_id) final {
-    std::lock_guard<LockT> exLockT(g_lock);
-    /// just delete thread from list, no backward sync needed
-    threads.erase(thread_id);
-    cleanup(thread_id);
-  }
-
-  /**
-   * \note allocation of shadow memory is not required in this
-   *       detector. If a standalone version of Fasttrack is used
-   *       this function can be ignored
-   */
-  void map_shadow(void* startaddr, size_t size_in_bytes) final { return; }
-
-  const char* name() final { return "FASTTRACK"; }
-
-  const char* version() final { return "0.0.1"; }
 };
 }  // namespace detector
 }  // namespace drace
-
 #endif  // !FASTTRACK_H

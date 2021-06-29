@@ -21,3 +21,4 @@ endif()
 
 add_subdirectory("detectors/fasttrack")
 add_subdirectory("binarydecoder")
+add_subdirectory("ft_benchmark")

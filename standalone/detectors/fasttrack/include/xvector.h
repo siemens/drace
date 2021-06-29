@@ -18,4 +18,4 @@ class xvector : public std::vector<_Ty, _Ax> {
   using std::vector<_Ty, _Ax>::vector;
 };
 
-#endif
+#endif  //! XVECTOR_H

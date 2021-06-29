@@ -11,12 +11,14 @@
 set(FT_SOURCES
     "src/stacktrace"
     "src/varstate"
+    "src/MemoryPool"
     "src/threadstate")
 
 set(FT_TEST_SOURCES
     "test/fasttrack_test"
     "src/stacktrace"
     "src/varstate"
+    "src/MemoryPool"
     "src/threadstate")
 
 include(GenerateExportHeader)

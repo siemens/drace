@@ -357,7 +357,7 @@ dr_emit_flags_t MemoryTracker::event_app_instruction(
   }
 
   return DR_EMIT_DEFAULT;
-}
+}  // namespace drace
 
 void MemoryTracker::process_buffer() {
   ShadowThreadState &data = thread_state.getSlot();
